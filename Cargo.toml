@@ -1,0 +1,39 @@
+[package]
+name = "bq40z50"
+version = "0.1.0"
+repository = "https://github.com/pop-project/bq40z50"
+license = "MIT"
+description = "Platform-agnostic Rust driver for the Texas Instruments BQ40Z50 battery fuel (gas) gauge."
+readme = "README.md"
+keywords = ["bq40z50", "TI", "Texas Instruments", "battery", "fuel", "gas", "gauge", "i2c", "driver", "embedded-hal-driver"]
+categories = ["embedded", "hardware-support", "no-std"]
+documentation = "https://docs.rs/bq40z50"
+include = [
+	"/**/*.rs",
+	"/Cargo.toml",
+	"/README.md",
+	"/LICENSE",
+	"/device.yaml",
+]
+edition = "2021"
+
+[dependencies]
+device-driver = { version = "=1.0.0-rc.1", default-features = false, features = ["yaml"] }
+defmt = { version = "0.3", optional = true }
+
+
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+
+[lints.clippy]
+correctness = "forbid"
+suspicious = "forbid"
+perf = "forbid"
+style = "forbid"
+pedantic = "deny"
+
+[features]
+defmt-03 = ["dep:defmt", "device-driver/defmt-03"]

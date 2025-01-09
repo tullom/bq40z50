@@ -134,3 +134,75 @@ impl<I2c: I2cTrait> device_driver::AsyncBufferInterface for DeviceInterface<I2c>
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn read_chip_id() {
+        let expectations = vec![Transaction::write_read(BQ_ADDR, vec![0x44, 0x21, 0x00], vec![])];
+        let i2c = Mock::new(&expectations);
+        let mut bq = Device::new(DeviceInterface { i2c });
+
+        bq.mac_gauging().dispatch_async().await.unwrap();
+
+        bq.interface.i2c.done();
+    }
+
+    #[tokio::test]
+    async fn read_chip_id_2() {
+        let expectations = vec![Transaction::write_read(
+            BQ_ADDR,
+            vec![0x44, 0x01, 0x00],
+            vec![0x00, 0x00],
+        )];
+        let i2c = Mock::new(&expectations);
+        let mut bq = Device::new(DeviceInterface { i2c });
+
+        bq.mac_device_type().dispatch_async().await.unwrap();
+        bq.interface.i2c.done();
+    }
+
+    #[tokio::test]
+    async fn read_too_large_manufacture_name() {
+        let expectations = vec![Transaction::write_read(BQ_ADDR, vec![0x20], vec![0x00])];
+        let i2c = Mock::new(&expectations);
+        let mut bq = Device::new(DeviceInterface { i2c });
+
+        let mut manufacture_name = [0u8; 1];
+
+        bq.manufacture_name().read_async(&mut manufacture_name).await.unwrap();
+        bq.interface.i2c.done();
+    }
+
+    #[tokio::test]
+    async fn write_unseal_keys() {
+        let expectations = vec![Transaction::write_read(
+            BQ_ADDR,
+            vec![0x44, 0x35, 0x00, 0x30, 0x30, 0x60, 0x60, 0x01, 0x01, 0x10, 0x10],
+            vec![0x30, 0x30, 0x60, 0x60, 0x01, 0x01, 0x10, 0x10],
+        )];
+        let i2c = Mock::new(&expectations);
+        let mut bq = Device::new(DeviceInterface { i2c });
+
+        let f = bq
+            .mac_security_keys()
+            .dispatch_async(|f| {
+                f.set_unseal_key_a(0x3030);
+                f.set_unseal_key_b(0x6060);
+                f.set_full_access_key_a(0x0101);
+                f.set_full_access_key_b(0x1010);
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(f.unseal_key_a(), 0x3030);
+        assert_eq!(f.unseal_key_b(), 0x6060);
+        assert_eq!(f.full_access_key_a(), 0x0101);
+        assert_eq!(f.full_access_key_b(), 0x1010);
+        bq.interface.i2c.done();
+    }
+}

@@ -42,4 +42,4 @@ style = "forbid"
 pedantic = "deny"
 
 [features]
-defmt-03 = ["dep:defmt", "device-driver/defmt-03"]
+defmt-03 = ["dep:defmt", "device-driver/defmt-03", "embedded-batteries-async/defmt"]

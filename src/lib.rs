@@ -545,6 +545,14 @@ impl<I2C: I2cTrait> smart_battery::SmartBattery for Bq40z50<I2C> {
     async fn device_chemistry(&mut self, chemistry: &mut [u8]) -> Result<(), Self::Error> {
         self.device.device_chemistry().read_async(chemistry).await.map(|_f| ())
     }
+
+    async fn charging_current(&mut self) -> Result<embedded_batteries_async::charger::MilliAmps, Self::Error> {
+        Ok(self.device.charging_current().read_async().await?.charging_current())
+    }
+
+    async fn charging_voltage(&mut self) -> Result<smart_battery::MilliVolts, Self::Error> {
+        Ok(self.device.charging_voltage().read_async().await?.charging_voltage())
+    }
 }
 
 #[cfg(test)]

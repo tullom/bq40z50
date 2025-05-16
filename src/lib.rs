@@ -32,8 +32,18 @@ const BQ_ADDR: u8 = 0x0B;
 const LARGEST_REG_SIZE_BYTES: usize = 5;
 const LARGEST_CMD_SIZE_BYTES: usize = 32;
 const LARGEST_BUF_SIZE_BYTES: usize = 33;
-const MAC_CMD_ADDR_SIZE_BYTES: usize = 2;
-const MAC_CMD_ADDR_SIZE_BITS: usize = MAC_CMD_ADDR_SIZE_BYTES * 8;
+const MAC_CMD_ADDR_SIZE_BYTES: u8 = 2;
+const MAC_CMD_ADDR_SIZE_BITS: u8 = MAC_CMD_ADDR_SIZE_BYTES * 8;
+const MAC_CMD: u8 = 0x44u8;
+
+// Special case MAC commands
+const SECURITY_KEYS_CMD: [u8; MAC_CMD_ADDR_SIZE_BYTES as usize] = 0x0035u16.to_le_bytes();
+const SECURITY_KEYS_DATA_LEN_BYTES: u8 = 8;
+const SECURITY_KEYS_LEN_BYTES: u8 = SECURITY_KEYS_DATA_LEN_BYTES + MAC_CMD_ADDR_SIZE_BYTES;
+
+const AUTH_KEY_CMD: [u8; MAC_CMD_ADDR_SIZE_BYTES as usize] = 0x0037u16.to_le_bytes();
+const AUTH_KEY_DATA_LEN_BYTES: u8 = 16;
+const AUTH_KEY_LEN_BYTES: u8 = AUTH_KEY_DATA_LEN_BYTES + MAC_CMD_ADDR_SIZE_BYTES;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum CapacityModeState {
@@ -135,22 +145,57 @@ impl<I2C: I2cTrait> device_driver::AsyncCommandInterface for DeviceInterface<I2C
     async fn dispatch_command(
         &mut self,
         address: Self::AddressType,
-        _size_bits_in: u32,
-        input: &[u8],
-        _size_bits_out: u32,
+        size_bits_in: u32,
+        _input: &[u8],
+        size_bits_out: u32,
         output: &mut [u8],
     ) -> Result<(), Self::Error> {
-        debug_assert!((input.len() <= LARGEST_CMD_SIZE_BYTES), "Command size too big");
+        // For this driver, dispatch_command() is used for interfacing with MAC registers.
+        // There are 3 possible scenarios, read only, write only, or read/write registers.
+        // Read commands have an output size but no input size.
+        // Write commands do not have an input size nor output size since they are pure commands.
+        // Read/write commands, like Security Keys and Authentication Key are special cases
+        // and are handled on a per-register basis not within this function.
 
-        let mut buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES + LARGEST_CMD_SIZE_BYTES];
+        // Block write first to send a command (write only commands) or to read command data from the fuel gauge
+        let mut buf = [0u8; 2 + MAC_CMD_ADDR_SIZE_BYTES as usize];
         buf[0] = ((address >> MAC_CMD_ADDR_SIZE_BITS) & 0xFF) as u8;
-        buf[1] = ((address >> 8) & 0xFF) as u8;
-        buf[2] = (address & 0xFF) as u8;
-        buf[3..input.len() + 3].copy_from_slice(input);
-        self.i2c
-            .write_read(BQ_ADDR, &buf[..=input.len() + MAC_CMD_ADDR_SIZE_BYTES], output)
-            .await
-            .map_err(BQ40Z50Error::I2c)
+        buf[1] = MAC_CMD_ADDR_SIZE_BYTES;
+        buf[2] = ((address >> 8) & 0xFF) as u8;
+        buf[3] = (address & 0xFF) as u8;
+
+        // Block write intended register.
+        self.i2c.write(BQ_ADDR, &buf).await.map_err(BQ40Z50Error::I2c)?;
+
+        if size_bits_in == 0 && size_bits_out > 0 {
+            // For read only commands.
+            // Block read using I2C write_read, sending 0x44 as the command.
+            // Response looks like [ Length (1 byte) | Command (2 bytes) | Data (output.len() bytes)]
+            let mut output_buf = [0u8; 1 + LARGEST_CMD_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
+
+            self.i2c
+                .write_read(
+                    BQ_ADDR,
+                    &[buf[0]],
+                    &mut output_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + output.len()],
+                )
+                .await
+                .map_err(BQ40Z50Error::I2c)?;
+
+            output.copy_from_slice(
+                &output_buf
+                    [(1 + MAC_CMD_ADDR_SIZE_BYTES as usize)..(1 + MAC_CMD_ADDR_SIZE_BYTES as usize + output.len())],
+            );
+
+            Ok(())
+        } else if size_bits_in == 0 && size_bits_out == 0 {
+            // Write only, writes don't have an output size nor an input size because
+            // writes only consist of the register/command address. So we are done.
+            Ok(())
+        } else {
+            // Read/write, to be handled in other functions as special cases.
+            unreachable!();
+        }
     }
 }
 
@@ -213,6 +258,145 @@ impl<I2C: I2cTrait> Bq40z50<I2C> {
         } else {
             CapacityModeState::Milliamps
         });
+    }
+
+    /// Read MAC Register 0x0035 Security Keys.
+    ///
+    /// This function has special functionality compared to the rest of the MAC commands and so it is handled in its
+    /// own function.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an I2C bus error occurs.
+    pub async fn read_security_keys(
+        &mut self,
+        output_buf: &mut [u8; SECURITY_KEYS_DATA_LEN_BYTES as usize],
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        let mut buf = [0u8; 2 + MAC_CMD_ADDR_SIZE_BYTES as usize];
+        buf[0] = MAC_CMD;
+        buf[1] = MAC_CMD_ADDR_SIZE_BYTES;
+        buf[2] = SECURITY_KEYS_CMD[0];
+        buf[3] = SECURITY_KEYS_CMD[1];
+
+        // Block write intended register.
+        self.device
+            .interface
+            .i2c
+            .write(BQ_ADDR, &buf)
+            .await
+            .map_err(BQ40Z50Error::I2c)?;
+
+        // [ Length (1 byte) | Command (2 bytes) | Security Keys (8 bytes)]
+        let mut raw_output_buf = [0u8; 1 + SECURITY_KEYS_LEN_BYTES as usize];
+
+        self.device
+            .interface
+            .i2c
+            .write_read(BQ_ADDR, &[buf[0]], &mut raw_output_buf)
+            .await
+            .map_err(BQ40Z50Error::I2c)?;
+
+        output_buf.copy_from_slice(
+            &raw_output_buf[(1 + MAC_CMD_ADDR_SIZE_BYTES as usize)..=SECURITY_KEYS_LEN_BYTES as usize],
+        );
+
+        Ok(())
+    }
+
+    /// Write MAC Register 0x0035 Security Keys.
+    ///
+    /// This function has special functionality compared to the rest of the MAC commands and so it is handled in its
+    /// own function.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an I2C bus error occurs.
+    pub async fn write_security_keys(
+        &mut self,
+        security_keys: &[u8; SECURITY_KEYS_DATA_LEN_BYTES as usize],
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        let mut buf = [0u8; 2 + MAC_CMD_ADDR_SIZE_BYTES as usize + SECURITY_KEYS_DATA_LEN_BYTES as usize];
+        buf[0] = MAC_CMD;
+        buf[1] = SECURITY_KEYS_LEN_BYTES;
+        buf[2] = SECURITY_KEYS_CMD[0];
+        buf[3] = SECURITY_KEYS_CMD[1];
+        buf[4..].copy_from_slice(security_keys);
+
+        self.device
+            .interface
+            .i2c
+            .write(BQ_ADDR, &buf)
+            .await
+            .map_err(BQ40Z50Error::I2c)
+    }
+
+    /// Read MAC Register 0x0037 Authentication Key.
+    ///
+    /// This function has special functionality compared to the rest of the MAC commands and so it is handled in its
+    /// own function.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an I2C bus error occurs.
+    pub async fn read_authentication_key(
+        &mut self,
+        output_buf: &mut [u8; AUTH_KEY_DATA_LEN_BYTES as usize],
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        let mut buf = [0u8; 2 + MAC_CMD_ADDR_SIZE_BYTES as usize];
+        buf[0] = MAC_CMD;
+        buf[1] = MAC_CMD_ADDR_SIZE_BYTES;
+        buf[2] = AUTH_KEY_CMD[0];
+        buf[3] = AUTH_KEY_CMD[1];
+
+        // Block write intended register.
+        self.device
+            .interface
+            .i2c
+            .write(BQ_ADDR, &buf)
+            .await
+            .map_err(BQ40Z50Error::I2c)?;
+
+        // [ Length (1 byte) | Command (2 bytes) | Auth Key (16 bytes)]
+        let mut raw_output_buf = [0u8; 1 + AUTH_KEY_LEN_BYTES as usize];
+
+        self.device
+            .interface
+            .i2c
+            .write_read(BQ_ADDR, &[buf[0]], &mut raw_output_buf)
+            .await
+            .map_err(BQ40Z50Error::I2c)?;
+
+        output_buf
+            .copy_from_slice(&raw_output_buf[(1 + MAC_CMD_ADDR_SIZE_BYTES as usize)..=AUTH_KEY_LEN_BYTES as usize]);
+
+        Ok(())
+    }
+
+    /// Write MAC Register 0x0037 Authentication Key.
+    ///
+    /// This function has special functionality compared to the rest of the MAC commands and so it is handled in its
+    /// own function.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if an I2C bus error occurs.
+    pub async fn write_authentication_key(
+        &mut self,
+        auth_key: &[u8; AUTH_KEY_LEN_BYTES as usize],
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        let mut buf = [0u8; 2 + MAC_CMD_ADDR_SIZE_BYTES as usize + AUTH_KEY_LEN_BYTES as usize];
+        buf[0] = MAC_CMD;
+        buf[1] = AUTH_KEY_LEN_BYTES;
+        buf[2] = AUTH_KEY_CMD[0];
+        buf[3] = AUTH_KEY_CMD[1];
+        buf[4..].copy_from_slice(auth_key);
+
+        self.device
+            .interface
+            .i2c
+            .write(BQ_ADDR, &buf)
+            .await
+            .map_err(BQ40Z50Error::I2c)
     }
 
     /// Read data from an arbitrary register from the device.
@@ -564,7 +748,7 @@ mod tests {
 
     #[tokio::test]
     async fn read_chip_id() {
-        let expectations = vec![Transaction::write_read(BQ_ADDR, vec![0x44, 0x21, 0x00], vec![])];
+        let expectations = vec![Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x21, 0x00])];
         let i2c = Mock::new(&expectations);
         let mut bq = Device::new(DeviceInterface { i2c });
 
@@ -575,15 +759,33 @@ mod tests {
 
     #[tokio::test]
     async fn read_chip_id_2() {
-        let expectations = vec![Transaction::write_read(
-            BQ_ADDR,
-            vec![0x44, 0x01, 0x00],
-            vec![0x00, 0x00],
-        )];
+        let expectations = vec![
+            Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x01, 0x00]),
+            Transaction::write_read(BQ_ADDR, vec![0x44], vec![0x04, 0x01, 0x00, 0x00, 0x00]),
+        ];
         let i2c = Mock::new(&expectations);
         let mut bq = Device::new(DeviceInterface { i2c });
 
         bq.mac_device_type().dispatch_async().await.unwrap();
+        bq.interface.i2c.done();
+    }
+
+    #[tokio::test]
+    async fn read_firmware_version() {
+        let expectations = vec![
+            Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x02, 0x00]),
+            Transaction::write_read(
+                BQ_ADDR,
+                vec![0x44],
+                vec![
+                    0x0A, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                ],
+            ),
+        ];
+        let i2c = Mock::new(&expectations);
+        let mut bq = Device::new(DeviceInterface { i2c });
+
+        bq.mac_firmware_version().dispatch_async().await.unwrap();
         bq.interface.i2c.done();
     }
 
@@ -601,30 +803,33 @@ mod tests {
 
     #[tokio::test]
     async fn write_unseal_keys() {
-        let expectations = vec![Transaction::write_read(
-            BQ_ADDR,
-            vec![0x44, 0x35, 0x00, 0x30, 0x30, 0x60, 0x60, 0x01, 0x01, 0x10, 0x10],
-            vec![0x30, 0x30, 0x60, 0x60, 0x01, 0x01, 0x10, 0x10],
-        )];
+        let expectations = vec![
+            Transaction::write(
+                BQ_ADDR,
+                vec![0x44, 0x0A, 0x35, 0x00, 0x30, 0x30, 0x60, 0x60, 0x01, 0x01, 0x10, 0x10],
+            ),
+            Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x35, 0x00]),
+            Transaction::write_read(
+                BQ_ADDR,
+                vec![0x44],
+                vec![0x0A, 0x35, 0x00, 0x30, 0x30, 0x60, 0x60, 0x01, 0x01, 0x10, 0x10],
+            ),
+        ];
         let i2c = Mock::new(&expectations);
-        let mut bq = Device::new(DeviceInterface { i2c });
+        let mut bq = Bq40z50::new(i2c);
 
-        let f = bq
-            .mac_security_keys()
-            .dispatch_async(|f| {
-                f.set_unseal_key_a(0x3030);
-                f.set_unseal_key_b(0x6060);
-                f.set_full_access_key_a(0x0101);
-                f.set_full_access_key_b(0x1010);
-            })
-            .await
-            .unwrap();
+        let security_keys = [0x30u8, 0x30u8, 0x60u8, 0x60u8, 0x01u8, 0x01u8, 0x10u8, 0x10u8];
 
-        assert_eq!(f.unseal_key_a(), 0x3030);
-        assert_eq!(f.unseal_key_b(), 0x6060);
-        assert_eq!(f.full_access_key_a(), 0x0101);
-        assert_eq!(f.full_access_key_b(), 0x1010);
-        bq.interface.i2c.done();
+        bq.write_security_keys(&security_keys).await.unwrap();
+
+        let mut result = [0u8; 8];
+        bq.read_security_keys(&mut result).await.unwrap();
+
+        assert_eq!(u16::from_le_bytes([result[0], result[1]]), 0x3030);
+        assert_eq!(u16::from_le_bytes([result[2], result[3]]), 0x6060);
+        assert_eq!(u16::from_le_bytes([result[4], result[5]]), 0x0101);
+        assert_eq!(u16::from_le_bytes([result[6], result[7]]), 0x1010);
+        bq.device.interface.i2c.done();
     }
 
     #[tokio::test]
@@ -636,8 +841,7 @@ mod tests {
         let status = match bq.battery_status().await {
             Ok(status) => status,
             Err(e) => match e {
-                BQ40Z50Error::I2c(err) => panic!(),
-                BQ40Z50Error::BatteryStatus(er) => panic!(),
+                _ => unreachable!(),
             },
         };
 

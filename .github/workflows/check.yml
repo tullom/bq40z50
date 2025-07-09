@@ -47,7 +47,7 @@ jobs:
       matrix:
         # Get early warning of new lints which are regularly introduced in beta channels.
         toolchain: [stable, beta]
-        chip-rev: [r1, r4]
+        chip-rev: [r1, r3, r4, r5]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,35 +65,40 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
   # Enable once we have a released crate
-  semver:
-    runs-on: ubuntu-latest
-    name: semver
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: cargo-semver-checks
-        uses: obi1kenobi/cargo-semver-checks-action@v2
+  # UPDATE: Crate is released but because of mutually exclusive features, this will never succeed :c
+  # semver:
+  #   runs-on: ubuntu-latest
+  #   name: semver
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: true
+  #     - name: Install stable
+  #       uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         components: rustfmt
+  #     - name: cargo-semver-checks
+  #       uses: obi1kenobi/cargo-semver-checks-action@v2
 
   doc:
     # run docs generation on nightly rather than stable. This enables features like
     # https://doc.rust-lang.org/beta/unstable-book/language-features/doc-cfg.html which allows an
     # API be documented as only available in some specific platforms.
+    # UPDATE: nightly seems broken right now, reverting to stable
     runs-on: ubuntu-latest
-    name: nightly / doc
+    name: stable / doc
     strategy:
       matrix:
-        chip-rev: [r1, r4]
+        chip-rev: [r1, r3, r4, r5]
+        toolchain: [stable]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: ${{ matrix.toolchain }}
       - name: cargo doc ${{ matrix.chip-rev }}
         run: cargo doc --no-deps --features ${{ matrix.chip-rev }}
         env:
@@ -126,7 +131,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        chip-rev: [r1, r4]
+        chip-rev: [r1, r3, r4, r5]
         msrv: ["1.85"] # We're relying on namespaced-features, which
                        # was released in 1.60
                        #
@@ -142,6 +147,7 @@ jobs:
                        # bitfield-struct requires 1.83
                        #
                        # device-driver requires 1.85 for Rust 2024 edition
+        toolchain: [stable]
     name: ubuntu / ${{ matrix.msrv }}
     steps:
       - uses: actions/checkout@v4
@@ -150,6 +156,6 @@ jobs:
       - name: Install ${{ matrix.msrv }}
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ matrix.msrv }}
-      - name: cargo +${{ matrix.msrv }} check ${{ matrix.chip-rev }}
+          toolchain: ${{ matrix.toolchain }}
+      - name: cargo +${{ matrix.toolchain }} check ${{ matrix.chip-rev }}
         run: cargo check --features ${{ matrix.chip-rev }}

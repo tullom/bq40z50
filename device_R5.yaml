@@ -2279,6 +2279,44 @@ MAC_MANUFACTURE_INFO_C:
       start: 192
       end: 256
 
+MAC_LIFETIME_DATA_BLOCK_16:
+  type: command
+  address: 0x447E00
+  size_bits_out: 256
+  fields_out:
+    TIME_SPENT_LFT_UUT_RSOC_A:
+      base: uint
+      start: 0
+      end: 32
+    TIME_SPENT_LFT_UUT_RSOC_B:
+      base: uint
+      start: 32
+      end: 64
+    TIME_SPENT_LFT_UUT_RSOC_C:
+      base: uint
+      start: 64
+      end: 96
+    TIME_SPENT_LFT_UUT_RSOC_D:
+      base: uint
+      start: 96
+      end: 128
+    TIME_SPENT_LFT_UUT_RSOC_E:
+      base: uint
+      start: 128
+      end: 160
+    TIME_SPENT_LFT_UUT_RSOC_F:
+      base: uint
+      start: 160
+      end: 192
+    TIME_SPENT_LFT_UUT_RSOC_G:
+      base: uint
+      start: 192
+      end: 224
+    TIME_SPENT_LFT_UUT_RSOC_H:
+      base: uint
+      start: 224
+      end: 256
+
 MAC_ROM_MODE:
   type: command
   address: 0x44000F

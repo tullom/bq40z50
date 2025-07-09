@@ -18,7 +18,7 @@ jobs:
     strategy:
       matrix:
         target: [thumbv8m.main-none-eabihf]
-        chip-rev: [r1, r4]
+        chip-rev: [r1, r3, r4, r5]
     steps:
       - uses: actions/checkout@v4
         with:

@@ -52,4 +52,6 @@ defmt-03 = [
 	"embedded-batteries-async/defmt",
 ]
 r1 = []
+r3 = []
 r4 = []
+r5 = []

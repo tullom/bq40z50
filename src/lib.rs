@@ -6,7 +6,10 @@
 //! For further details of the device architecture and operation, please refer
 //! to the official [`Datasheet`].
 //!
-//! [`Datasheet`]: https://www.ti.com/lit/ug/sluua43a/sluua43a.pdf
+//! [`Datasheet R1`]: https://www.ti.com/lit/ug/sluua43a/sluua43a.pdf
+//! [`Datasheet R3`]: https://www.ti.com/lit/ug/sluubu5a/sluubu5a.pdf
+//! [`Datasheet R4`]: https://www.ti.com/lit/ug/sluuch2/sluuch2.pdf
+//! [`Datasheet R5`]: https://www.ti.com/lit/ug/sluucn4b/sluucn4b.pdf
 
 #![doc = include_str!("../README.md")]
 #![cfg_attr(not(test), no_std)]

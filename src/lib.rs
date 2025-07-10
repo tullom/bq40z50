@@ -6,7 +6,10 @@
 //! For further details of the device architecture and operation, please refer
 //! to the official [`Datasheet`].
 //!
-//! [`Datasheet`]: https://www.ti.com/lit/ug/sluua43a/sluua43a.pdf
+//! [`Datasheet R1`]: https://www.ti.com/lit/ug/sluua43a/sluua43a.pdf
+//! [`Datasheet R3`]: https://www.ti.com/lit/ug/sluubu5a/sluubu5a.pdf
+//! [`Datasheet R4`]: https://www.ti.com/lit/ug/sluuch2/sluuch2.pdf
+//! [`Datasheet R5`]: https://www.ti.com/lit/ug/sluucn4b/sluucn4b.pdf
 
 #![doc = include_str!("../README.md")]
 #![cfg_attr(not(test), no_std)]
@@ -28,10 +31,15 @@ pub enum BQ40Z50Error<I2cError> {
     BatteryStatus(ErrorCode),
 }
 
-const BQ_ADDR: u8 = 0x0B;
+// Gated as future revisions of this chip may have larger register sizes.
+#[cfg(any(feature = "r1", feature = "r3", feature = "r4", feature = "r5"))]
 const LARGEST_REG_SIZE_BYTES: usize = 5;
+#[cfg(any(feature = "r1", feature = "r3", feature = "r4", feature = "r5"))]
 const LARGEST_CMD_SIZE_BYTES: usize = 32;
+#[cfg(any(feature = "r1", feature = "r3", feature = "r4", feature = "r5"))]
 const LARGEST_BUF_SIZE_BYTES: usize = 33;
+
+const BQ_ADDR: u8 = 0x0Bu8;
 const MAC_CMD_ADDR_SIZE_BYTES: u8 = 2;
 const MAC_CMD_ADDR_SIZE_BITS: u8 = MAC_CMD_ADDR_SIZE_BYTES * 8;
 const MAC_CMD: u8 = 0x44u8;
@@ -94,9 +102,28 @@ pub struct DeviceInterface<I2C: I2cTrait> {
     pub i2c: I2C,
 }
 
+#[cfg(feature = "r1")]
 device_driver::create_device!(
     device_name: Device,
-    manifest: "device.yaml"
+    manifest: "device_R1.yaml"
+);
+
+#[cfg(feature = "r3")]
+device_driver::create_device!(
+    device_name: Device,
+    manifest: "device_R3.yaml"
+);
+
+#[cfg(feature = "r4")]
+device_driver::create_device!(
+    device_name: Device,
+    manifest: "device_R4.yaml"
+);
+
+#[cfg(feature = "r5")]
+device_driver::create_device!(
+    device_name: Device,
+    manifest: "device_R5.yaml"
 );
 
 impl<I2C: I2cTrait> device_driver::AsyncRegisterInterface for DeviceInterface<I2C> {

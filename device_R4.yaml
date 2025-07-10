@@ -875,10 +875,20 @@ MAC_AFE_REG:
       start: 160
       end: 168
 
+NO_LOAD_REM_CAP:
+  type: command
+  address: 0x445A00
+  size_bits_out: 16
+  fields_out:
+    REMAINING_CAPACITY:
+      base: uint
+      start: 0
+      end: 16
+
 MAC_LIFETIME_DATA_BLOCK_1:
   type: command
   address: 0x446000
-  size_bits_out: 256
+  size_bits_out: 208
   fields_out:
     CELL_1_MAX_V:
       base: uint
@@ -932,51 +942,19 @@ MAC_LIFETIME_DATA_BLOCK_1:
       base: uint
       start: 192
       end: 208
-    MAX_TEMP_CELL:
-      base: uint
-      start: 208
-      end: 216
-    MIN_TEMP_CELL:
-      base: uint
-      start: 216
-      end: 224
-    MAX_DELTA_CELL_TEMP:
-      base: uint
-      start: 224
-      end: 232
-    MAX_TEMP_INT_SENSOR:
-      base: uint
-      start: 232
-      end: 240
-    MIN_TEMP_INT_SENSOR:
-      base: uint
-      start: 240
-      end: 248
-    MAX_TEMP_FET:
-      base: uint
-      start: 248
-      end: 256
 
 MAC_LIFETIME_DATA_BLOCK_2:
   type: command
   address: 0x446100
   size_bits_out: 64
   fields_out:
-    NUM_SHUTDOWNS:
+    MIN_FCC_SOH_MAH:
       base: uint
       start: 0
-      end: 8
-    NUM_PART_RESETS:
-      base: uint
-      start: 8
       end: 16
-    NUM_FULL_RESETS:
+    MIN_FCC_SOH_CWH:
       base: uint
       start: 16
-      end: 24
-    NUM_WDT_RESETS:
-      base: uint
-      start: 24
       end: 32
     CB_TIME_CELL_1:
       base: uint
@@ -998,40 +976,12 @@ MAC_LIFETIME_DATA_BLOCK_2:
 MAC_LIFETIME_DATA_BLOCK_3:
   type: command
   address: 0x446200
-  size_bits_out: 128
+  size_bits_out: 32
   fields_out:
     TOTAL_FW_RUNTIME:
       base: uint
       start: 0
-      end: 16
-    TIME_SPENT_IN_UT:
-      base: uint
-      start: 16
       end: 32
-    TIME_SPENT_IN_LT:
-      base: uint
-      start: 32
-      end: 48
-    TIME_SPENT_IN_STL:
-      base: uint
-      start: 48
-      end: 64
-    TIME_SPENT_IN_RT:
-      base: uint
-      start: 64
-      end: 80
-    TIME_SPENT_IN_STH:
-      base: uint
-      start: 80
-      end: 96
-    TIME_SPENT_IN_HT:
-      base: uint
-      start: 96
-      end: 112
-    TIME_SPENT_IN_OT:
-      base: uint
-      start: 112
-      end: 128
 
 MAC_LIFETIME_DATA_BLOCK_4:
   type: command
@@ -1173,6 +1123,672 @@ MAC_LIFETIME_DATA_BLOCK_5:
       start: 240
       end: 256
 
+MAC_LIFETIME_DATA_BLOCK_6:
+  type: command
+  address: 0x446500
+  size_bits_out: 256
+  fields_out:
+    TIME_SPENT_UT_RSOC_A:
+      base: uint
+      start: 0
+      end: 32
+    TIME_SPENT_UT_RSOC_B:
+      base: uint
+      start: 32
+      end: 64
+    TIME_SPENT_UT_RSOC_C:
+      base: uint
+      start: 64
+      end: 96
+    TIME_SPENT_UT_RSOC_D:
+      base: uint
+      start: 96
+      end: 128
+    TIME_SPENT_UT_RSOC_E:
+      base: uint
+      start: 128
+      end: 160
+    TIME_SPENT_UT_RSOC_F:
+      base: uint
+      start: 160
+      end: 192
+    TIME_SPENT_UT_RSOC_G:
+      base: uint
+      start: 192
+      end: 224
+    TIME_SPENT_UT_RSOC_H:
+      base: uint
+      start: 224
+      end: 256
+
+MAC_LIFETIME_DATA_BLOCK_7:
+  type: command
+  address: 0x446600
+  size_bits_out: 256
+  fields_out:
+    TIME_SPENT_LT_RSOC_A:
+      base: uint
+      start: 0
+      end: 32
+    TIME_SPENT_LT_RSOC_B:
+      base: uint
+      start: 32
+      end: 64
+    TIME_SPENT_LT_RSOC_C:
+      base: uint
+      start: 64
+      end: 96
+    TIME_SPENT_LT_RSOC_D:
+      base: uint
+      start: 96
+      end: 128
+    TIME_SPENT_LT_RSOC_E:
+      base: uint
+      start: 128
+      end: 160
+    TIME_SPENT_LT_RSOC_F:
+      base: uint
+      start: 160
+      end: 192
+    TIME_SPENT_LT_RSOC_G:
+      base: uint
+      start: 192
+      end: 224
+    TIME_SPENT_LT_RSOC_H:
+      base: uint
+      start: 224
+      end: 256
+
+MAC_LIFETIME_DATA_BLOCK_8:
+  type: command
+  address: 0x446700
+  size_bits_out: 256
+  fields_out:
+    TIME_SPENT_STL_RSOC_A:
+      base: uint
+      start: 0
+      end: 32
+    TIME_SPENT_STL_RSOC_B:
+      base: uint
+      start: 32
+      end: 64
+    TIME_SPENT_STL_RSOC_C:
+      base: uint
+      start: 64
+      end: 96
+    TIME_SPENT_STL_RSOC_D:
+      base: uint
+      start: 96
+      end: 128
+    TIME_SPENT_STL_RSOC_E:
+      base: uint
+      start: 128
+      end: 160
+    TIME_SPENT_STL_RSOC_F:
+      base: uint
+      start: 160
+      end: 192
+    TIME_SPENT_STL_RSOC_G:
+      base: uint
+      start: 192
+      end: 224
+    TIME_SPENT_STL_RSOC_H:
+      base: uint
+      start: 224
+      end: 256
+
+MAC_LIFETIME_DATA_BLOCK_9:
+  type: command
+  address: 0x446800
+  size_bits_out: 256
+  fields_out:
+    TIME_SPENT_RT_RSOC_A:
+      base: uint
+      start: 0
+      end: 32
+    TIME_SPENT_RT_RSOC_B:
+      base: uint
+      start: 32
+      end: 64
+    TIME_SPENT_RT_RSOC_C:
+      base: uint
+      start: 64
+      end: 96
+    TIME_SPENT_RT_RSOC_D:
+      base: uint
+      start: 96
+      end: 128
+    TIME_SPENT_RT_RSOC_E:
+      base: uint
+      start: 128
+      end: 160
+    TIME_SPENT_RT_RSOC_F:
+      base: uint
+      start: 160
+      end: 192
+    TIME_SPENT_RT_RSOC_G:
+      base: uint
+      start: 192
+      end: 224
+    TIME_SPENT_RT_RSOC_H:
+      base: uint
+      start: 224
+      end: 256
+
+MAC_LIFETIME_DATA_BLOCK_10:
+  type: command
+  address: 0x446900
+  size_bits_out: 256
+  fields_out:
+    TIME_SPENT_STH_RSOC_A:
+      base: uint
+      start: 0
+      end: 32
+    TIME_SPENT_STH_RSOC_B:
+      base: uint
+      start: 32
+      end: 64
+    TIME_SPENT_STH_RSOC_C:
+      base: uint
+      start: 64
+      end: 96
+    TIME_SPENT_STH_RSOC_D:
+      base: uint
+      start: 96
+      end: 128
+    TIME_SPENT_STH_RSOC_E:
+      base: uint
+      start: 128
+      end: 160
+    TIME_SPENT_STH_RSOC_F:
+      base: uint
+      start: 160
+      end: 192
+    TIME_SPENT_STH_RSOC_G:
+      base: uint
+      start: 192
+      end: 224
+    TIME_SPENT_STH_RSOC_H:
+      base: uint
+      start: 224
+      end: 256
+
+MAC_LIFETIME_DATA_BLOCK_11:
+  type: command
+  address: 0x446A00
+  size_bits_out: 256
+  fields_out:
+    TIME_SPENT_HT_RSOC_A:
+      base: uint
+      start: 0
+      end: 32
+    TIME_SPENT_HT_RSOC_B:
+      base: uint
+      start: 32
+      end: 64
+    TIME_SPENT_HT_RSOC_C:
+      base: uint
+      start: 64
+      end: 96
+    TIME_SPENT_HT_RSOC_D:
+      base: uint
+      start: 96
+      end: 128
+    TIME_SPENT_HT_RSOC_E:
+      base: uint
+      start: 128
+      end: 160
+    TIME_SPENT_HT_RSOC_F:
+      base: uint
+      start: 160
+      end: 192
+    TIME_SPENT_HT_RSOC_G:
+      base: uint
+      start: 192
+      end: 224
+    TIME_SPENT_HT_RSOC_H:
+      base: uint
+      start: 224
+      end: 256
+
+MAC_LIFETIME_DATA_BLOCK_12:
+  type: command
+  address: 0x446B00
+  size_bits_out: 256
+  fields_out:
+    TIME_SPENT_OT_RSOC_A:
+      base: uint
+      start: 0
+      end: 32
+    TIME_SPENT_OT_RSOC_B:
+      base: uint
+      start: 32
+      end: 64
+    TIME_SPENT_OT_RSOC_C:
+      base: uint
+      start: 64
+      end: 96
+    TIME_SPENT_OT_RSOC_D:
+      base: uint
+      start: 96
+      end: 128
+    TIME_SPENT_OT_RSOC_E:
+      base: uint
+      start: 128
+      end: 160
+    TIME_SPENT_OT_RSOC_F:
+      base: uint
+      start: 160
+      end: 192
+    TIME_SPENT_OT_RSOC_G:
+      base: uint
+      start: 192
+      end: 224
+    TIME_SPENT_OT_RSOC_H:
+      base: uint
+      start: 224
+      end: 256
+
+MAC_LIFETIME_DATA_BLOCK_13:
+  type: command
+  address: 0x446C00
+  size_bits_out: 240
+  fields_out:
+    MAX_TEMP_CELL_RELAX:
+      base: uint
+      start: 0
+      end: 8
+    MIN_TEMP_CELL_RELAX:
+      base: uint
+      start: 8
+      end: 16
+    MAX_DELTA_TEMP_CELL_RELAX:
+      base: uint
+      start: 16
+      end: 24
+    MAX_TEMP_INT_RELAX:
+      base: uint
+      start: 24
+      end: 32
+    MIN_TEMP_INT_RELAX:
+      base: uint
+      start: 32
+      end: 40
+    MAX_TEMP_FET_RELAX:
+      base: uint
+      start: 40
+      end: 48
+    MAX_TEMP_TS1_RELAX:
+      base: uint
+      start: 48
+      end: 56
+    MAX_TEMP_TS2_RELAX:
+      base: uint
+      start: 56
+      end: 64
+    MAX_TEMP_TS3_RELAX:
+      base: uint
+      start: 64
+      end: 72
+    MAX_TEMP_TS4_RELAX:
+      base: uint
+      start: 72
+      end: 80
+    MIN_TEMP_TS1_RELAX:
+      base: uint
+      start: 80
+      end: 88
+    MIN_TEMP_TS2_RELAX:
+      base: uint
+      start: 88
+      end: 96
+    MIN_TEMP_TS3_RELAX:
+      base: uint
+      start: 96
+      end: 104
+    MIN_TEMP_TS4_RELAX:
+      base: uint
+      start: 104
+      end: 112
+    MAX_TEMP_TMP468_1_RELAX:
+      base: uint
+      start: 112
+      end: 120
+    MAX_TEMP_TMP468_2_RELAX:
+      base: uint
+      start: 120
+      end: 128
+    MAX_TEMP_TMP468_3_RELAX:
+      base: uint
+      start: 128
+      end: 136
+    MAX_TEMP_TMP468_4_RELAX:
+      base: uint
+      start: 136
+      end: 144
+    MAX_TEMP_TMP468_5_RELAX:
+      base: uint
+      start: 144
+      end: 152
+    MAX_TEMP_TMP468_6_RELAX:
+      base: uint
+      start: 152
+      end: 160
+    MAX_TEMP_TMP468_7_RELAX:
+      base: uint
+      start: 160
+      end: 168
+    MAX_TEMP_TMP468_8_RELAX:
+      base: uint
+      start: 168
+      end: 176
+    MIN_TEMP_TMP468_1_RELAX:
+      base: uint
+      start: 176
+      end: 184
+    MIN_TEMP_TMP468_2_RELAX:
+      base: uint
+      start: 184
+      end: 192
+    MIN_TEMP_TMP468_3_RELAX:
+      base: uint
+      start: 192
+      end: 200
+    MIN_TEMP_TMP468_4_RELAX:
+      base: uint
+      start: 200
+      end: 208
+    MIN_TEMP_TMP468_5_RELAX:
+      base: uint
+      start: 208
+      end: 216
+    MIN_TEMP_TMP468_6_RELAX:
+      base: uint
+      start: 216
+      end: 224
+    MIN_TEMP_TMP468_7_RELAX:
+      base: uint
+      start: 224
+      end: 232
+    MIN_TEMP_TMP468_8_RELAX:
+      base: uint
+      start: 232
+      end: 240
+
+MAC_LIFETIME_DATA_BLOCK_14:
+  type: command
+  address: 0x446D00
+  size_bits_out: 240
+  fields_out:
+    MAX_TEMP_CELL_CHARGE:
+      base: uint
+      start: 0
+      end: 8
+    MIN_TEMP_CELL_CHARGE:
+      base: uint
+      start: 8
+      end: 16
+    MAX_DELTA_TEMP_CELL_CHARGE:
+      base: uint
+      start: 16
+      end: 24
+    MAX_TEMP_INT_CHARGE:
+      base: uint
+      start: 24
+      end: 32
+    MIN_TEMP_INT_CHARGE:
+      base: uint
+      start: 32
+      end: 40
+    MAX_TEMP_FET_CHARGE:
+      base: uint
+      start: 40
+      end: 48
+    MAX_TEMP_TS1_CHARGE:
+      base: uint
+      start: 48
+      end: 56
+    MAX_TEMP_TS2_CHARGE:
+      base: uint
+      start: 56
+      end: 64
+    MAX_TEMP_TS3_CHARGE:
+      base: uint
+      start: 64
+      end: 72
+    MAX_TEMP_TS4_CHARGE:
+      base: uint
+      start: 72
+      end: 80
+    MIN_TEMP_TS1_CHARGE:
+      base: uint
+      start: 80
+      end: 88
+    MIN_TEMP_TS2_CHARGE:
+      base: uint
+      start: 88
+      end: 96
+    MIN_TEMP_TS3_CHARGE:
+      base: uint
+      start: 96
+      end: 104
+    MIN_TEMP_TS4_CHARGE:
+      base: uint
+      start: 104
+      end: 112
+    MAX_TEMP_TMP468_1_CHARGE:
+      base: uint
+      start: 112
+      end: 120
+    MAX_TEMP_TMP468_2_CHARGE:
+      base: uint
+      start: 120
+      end: 128
+    MAX_TEMP_TMP468_3_CHARGE:
+      base: uint
+      start: 128
+      end: 136
+    MAX_TEMP_TMP468_4_CHARGE:
+      base: uint
+      start: 136
+      end: 144
+    MAX_TEMP_TMP468_5_CHARGE:
+      base: uint
+      start: 144
+      end: 152
+    MAX_TEMP_TMP468_6_CHARGE:
+      base: uint
+      start: 152
+      end: 160
+    MAX_TEMP_TMP468_7_CHARGE:
+      base: uint
+      start: 160
+      end: 168
+    MAX_TEMP_TMP468_8_CHARGE:
+      base: uint
+      start: 168
+      end: 176
+    MIN_TEMP_TMP468_1_CHARGE:
+      base: uint
+      start: 176
+      end: 184
+    MIN_TEMP_TMP468_2_CHARGE:
+      base: uint
+      start: 184
+      end: 192
+    MIN_TEMP_TMP468_3_CHARGE:
+      base: uint
+      start: 192
+      end: 200
+    MIN_TEMP_TMP468_4_CHARGE:
+      base: uint
+      start: 200
+      end: 208
+    MIN_TEMP_TMP468_5_CHARGE:
+      base: uint
+      start: 208
+      end: 216
+    MIN_TEMP_TMP468_6_CHARGE:
+      base: uint
+      start: 216
+      end: 224
+    MIN_TEMP_TMP468_7_CHARGE:
+      base: uint
+      start: 224
+      end: 232
+    MIN_TEMP_TMP468_8_CHARGE:
+      base: uint
+      start: 232
+      end: 240
+
+MAC_LIFETIME_DATA_BLOCK_15:
+  type: command
+  address: 0x446E00
+  size_bits_out: 240
+  fields_out:
+    MAX_TEMP_CELL_DISCHARGE:
+      base: uint
+      start: 0
+      end: 8
+    MIN_TEMP_CELL_DISCHARGE:
+      base: uint
+      start: 8
+      end: 16
+    MAX_DELTA_TEMP_CELL_DISCHARGE:
+      base: uint
+      start: 16
+      end: 24
+    MAX_TEMP_INT_DISCHARGE:
+      base: uint
+      start: 24
+      end: 32
+    MIN_TEMP_INT_DISCHARGE:
+      base: uint
+      start: 32
+      end: 40
+    MAX_TEMP_FET_DISCHARGE:
+      base: uint
+      start: 40
+      end: 48
+    MAX_TEMP_TS1_DISCHARGE:
+      base: uint
+      start: 48
+      end: 56
+    MAX_TEMP_TS2_DISCHARGE:
+      base: uint
+      start: 56
+      end: 64
+    MAX_TEMP_TS3_DISCHARGE:
+      base: uint
+      start: 64
+      end: 72
+    MAX_TEMP_TS4_DISCHARGE:
+      base: uint
+      start: 72
+      end: 80
+    MIN_TEMP_TS1_DISCHARGE:
+      base: uint
+      start: 80
+      end: 88
+    MIN_TEMP_TS2_DISCHARGE:
+      base: uint
+      start: 88
+      end: 96
+    MIN_TEMP_TS3_DISCHARGE:
+      base: uint
+      start: 96
+      end: 104
+    MIN_TEMP_TS4_DISCHARGE:
+      base: uint
+      start: 104
+      end: 112
+    MAX_TEMP_TMP468_1_DISCHARGE:
+      base: uint
+      start: 112
+      end: 120
+    MAX_TEMP_TMP468_2_DISCHARGE:
+      base: uint
+      start: 120
+      end: 128
+    MAX_TEMP_TMP468_3_DISCHARGE:
+      base: uint
+      start: 128
+      end: 136
+    MAX_TEMP_TMP468_4_DISCHARGE:
+      base: uint
+      start: 136
+      end: 144
+    MAX_TEMP_TMP468_5_DISCHARGE:
+      base: uint
+      start: 144
+      end: 152
+    MAX_TEMP_TMP468_6_DISCHARGE:
+      base: uint
+      start: 152
+      end: 160
+    MAX_TEMP_TMP468_7_DISCHARGE:
+      base: uint
+      start: 160
+      end: 168
+    MAX_TEMP_TMP468_8_DISCHARGE:
+      base: uint
+      start: 168
+      end: 176
+    MIN_TEMP_TMP468_1_DISCHARGE:
+      base: uint
+      start: 176
+      end: 184
+    MIN_TEMP_TMP468_2_DISCHARGE:
+      base: uint
+      start: 184
+      end: 192
+    MIN_TEMP_TMP468_3_DISCHARGE:
+      base: uint
+      start: 192
+      end: 200
+    MIN_TEMP_TMP468_4_DISCHARGE:
+      base: uint
+      start: 200
+      end: 208
+    MIN_TEMP_TMP468_5_DISCHARGE:
+      base: uint
+      start: 208
+      end: 216
+    MIN_TEMP_TMP468_6_DISCHARGE:
+      base: uint
+      start: 216
+      end: 224
+    MIN_TEMP_TMP468_7_DISCHARGE:
+      base: uint
+      start: 224
+      end: 232
+    MIN_TEMP_TMP468_8_DISCHARGE:
+      base: uint
+      start: 232
+      end: 240
+
+MAC_POWER_EVENTS:
+  type: command
+  address: 0x446F00
+  size_bits_out: 32
+  fields_out:
+    NUM_SHUTDOWNS:
+      base: uint
+      start: 0
+      end: 8
+    NUM_PART_RESETS:
+      base: uint
+      start: 8
+      end: 16
+    NUM_FULL_RESETS:
+      base: uint
+      start: 16
+      end: 24
+    NUM_WDT_RESETS:
+      base: uint
+      start: 24
+      end: 32
+
 MAC_MANUFACTURE_INFO:
   type: command
   address: 0x447000
@@ -1268,7 +1884,7 @@ MAC_DA_STATUS_1:
 MAC_DA_STATUS_2:
   type: command
   address: 0x447200
-  size_bits_out: 112
+  size_bits_out: 208
   fields_out:
     INT_TEMP:
       base: uint
@@ -1298,6 +1914,30 @@ MAC_DA_STATUS_2:
       base: uint
       start: 96
       end: 112
+    GAUGING_TEMP:
+      base: uint
+      start: 112
+      end: 128
+    USER_TEMP:
+      base: uint
+      start: 128
+      end: 144
+    UNCOMP_CELL_V_1:
+      base: uint
+      start: 144
+      end: 160
+    UNCOMP_CELL_V_2:
+      base: uint
+      start: 160
+      end: 176
+    UNCOMP_CELL_V_3:
+      base: uint
+      start: 176
+      end: 192
+    UNCOMP_CELL_V_4:
+      base: uint
+      start: 192
+      end: 208
 
 MAC_GAUGE_STATUS_1:
   type: command
@@ -1516,7 +2156,7 @@ MAC_GAUGE_STATUS_3:
 MAC_CB_STATUS:
   type: command
   address: 0x447600
-  size_bits_out: 64
+  size_bits_out: 152
   fields_out:
     CB_TIME_0:
       base: uint
@@ -1534,6 +2174,30 @@ MAC_CB_STATUS:
       base: uint
       start: 48
       end: 64
+    CELL_1_BALANCE_DOD:
+      base: uint
+      start: 64
+      end: 80
+    CELL_2_BALANCE_DOD:
+      base: uint
+      start: 80
+      end: 96
+    CELL_3_BALANCE_DOD:
+      base: uint
+      start: 96
+      end: 112
+    CELL_4_BALANCE_DOD:
+      base: uint
+      start: 112
+      end: 128
+    TOTAL_DOD_CHRG:
+      base: uint
+      start: 128
+      end: 144
+    CELL_BALANCE_STAT:
+      base: uint
+      start: 144
+      end: 152
 
 MAC_STATE_OF_HEALTH:
   type: command
@@ -1570,6 +2234,50 @@ MAC_FILTER_CAPACITY:
       base: uint
       start: 48
       end: 64
+
+MAC_MANUFACTURE_INFO_B:
+  type: command
+  address: 0x447A00
+  size_bits_out: 256
+  fields_out:
+    MANUFACTURE_INFO_B_0:
+      base: uint
+      start: 0
+      end: 64
+    MANUFACTURE_INFO_B_1:
+      base: uint
+      start: 64
+      end: 128
+    MANUFACTURE_INFO_B_2:
+      base: uint
+      start: 128
+      end: 192
+    MANUFACTURE_INFO_B_3:
+      base: uint
+      start: 192
+      end: 256
+
+MAC_MANUFACTURE_INFO_C:
+  type: command
+  address: 0x447B00
+  size_bits_out: 256
+  fields_out:
+    MANUFACTURE_INFO_C_0:
+      base: uint
+      start: 0
+      end: 64
+    MANUFACTURE_INFO_C_1:
+      base: uint
+      start: 64
+      end: 128
+    MANUFACTURE_INFO_C_2:
+      base: uint
+      start: 128
+      end: 192
+    MANUFACTURE_INFO_C_3:
+      base: uint
+      start: 192
+      end: 256
 
 MAC_ROM_MODE:
   type: command
@@ -3163,7 +3871,7 @@ TURBO_PACK_R:
   access: RW
   fields:
     TURBO_PACK_R:
-      base: uint
+      base: int
       access: RW
       start: 0
       end: 16
@@ -3175,7 +3883,7 @@ TURBO_SYS_R:
   access: RW
   fields:
     TURBO_SYS_R:
-      base: uint
+      base: int
       access: RW
       start: 0
       end: 16
@@ -3187,7 +3895,7 @@ TURBO_EDV:
   access: RW
   fields:
     TURBO_EDV:
-      base: uint
+      base: int
       access: RW
       start: 0
       end: 16
@@ -3199,7 +3907,19 @@ TURBO_CURRENT:
   access: RW
   fields:
     TURBO_CURRENT:
-      base: uint
+      base: int
+      access: RW
+      start: 0
+      end: 16
+
+SUS_TURBO_CURRENT:
+  type: register
+  address: 0x5F
+  size_bits: 16
+  access: RW
+  fields:
+    SUS_TURBO_CURRENT:
+      base: int
       access: RW
       start: 0
       end: 16
@@ -3207,7 +3927,7 @@ TURBO_CURRENT:
 LIFETIME_DATA_BLOCK_1:
   type: register
   address: 0x60
-  size_bits: 256
+  size_bits: 208
   access: RO
   fields:
     CELL_1_MAX_V:
@@ -3275,36 +3995,6 @@ LIFETIME_DATA_BLOCK_1:
       access: RO
       start: 192
       end: 208
-    MAX_TEMP_CELL:
-      base: uint
-      access: RO
-      start: 208
-      end: 216
-    MIN_TEMP_CELL:
-      base: uint
-      access: RO
-      start: 216
-      end: 224
-    MAX_DELTA_CELL_TEMP:
-      base: uint
-      access: RO
-      start: 224
-      end: 232
-    MAX_TEMP_INT_SENSOR:
-      base: uint
-      access: RO
-      start: 232
-      end: 240
-    MIN_TEMP_INT_SENSOR:
-      base: uint
-      access: RO
-      start: 240
-      end: 248
-    MAX_TEMP_FET:
-      base: uint
-      access: RO
-      start: 248
-      end: 256
 
 LIFETIME_DATA_BLOCK_2:
   type: register
@@ -3312,25 +4002,15 @@ LIFETIME_DATA_BLOCK_2:
   access: RO
   size_bits: 64
   fields:
-    NUM_SHUTDOWNS:
+    MIN_FCC_SOH_MAH:
       base: uint
       access: RO
       start: 0
-      end: 8
-    NUM_PART_RESETS:
-      base: uint
-      access: RO
-      start: 8
       end: 16
-    NUM_FULL_RESETS:
+    MIN_FCC_SOH_CWH:
       base: uint
       access: RO
       start: 16
-      end: 24
-    NUM_WDT_RESETS:
-      base: uint
-      access: RO
-      start: 24
       end: 32
     CB_TIME_CELL_1:
       base: uint
@@ -3357,48 +4037,13 @@ LIFETIME_DATA_BLOCK_3:
   type: register
   address: 0x62
   access: RO
-  size_bits: 128
+  size_bits: 32
   fields:
     TOTAL_FW_RUNTIME:
       base: uint
       access: RO
       start: 0
-      end: 16
-    TIME_SPENT_IN_UT:
-      base: uint
-      access: RO
-      start: 16
       end: 32
-    TIME_SPENT_IN_LT:
-      base: uint
-      access: RO
-      start: 32
-      end: 48
-    TIME_SPENT_IN_STL:
-      base: uint
-      access: RO
-      start: 48
-      end: 64
-    TIME_SPENT_IN_RT:
-      base: uint
-      access: RO
-      start: 64
-      end: 80
-    TIME_SPENT_IN_STH:
-      base: uint
-      access: RO
-      start: 80
-      end: 96
-    TIME_SPENT_IN_HT:
-      base: uint
-      access: RO
-      start: 96
-      end: 112
-    TIME_SPENT_IN_OT:
-      base: uint
-      access: RO
-      start: 112
-      end: 128
 
 LIFETIME_DATA_BLOCK_4:
   type: register
@@ -3574,6 +4219,144 @@ LIFETIME_DATA_BLOCK_5:
       start: 240
       end: 256
 
+LIFETIME_DATA_BLOCK_6:
+  type: register
+  address: 0x65
+  size_bits: 256
+  fields:
+    TIME_SPENT_UT_RSOC_A:
+      base: uint
+      access: RO
+      start: 0
+      end: 32
+    TIME_SPENT_UT_RSOC_B:
+      base: uint
+      access: RO
+      start: 32
+      end: 64
+    TIME_SPENT_UT_RSOC_C:
+      base: uint
+      access: RO
+      start: 64
+      end: 96
+    TIME_SPENT_UT_RSOC_D:
+      base: uint
+      access: RO
+      start: 96
+      end: 128
+    TIME_SPENT_UT_RSOC_E:
+      base: uint
+      access: RO
+      start: 128
+      end: 160
+    TIME_SPENT_UT_RSOC_F:
+      base: uint
+      access: RO
+      start: 160
+      end: 192
+    TIME_SPENT_UT_RSOC_G:
+      base: uint
+      access: RO
+      start: 192
+      end: 224
+    TIME_SPENT_UT_RSOC_H:
+      base: uint
+      access: RO
+      start: 224
+      end: 256
+
+LIFETIME_DATA_BLOCK_7:
+  type: register
+  address: 0x66
+  size_bits: 256
+  fields:
+    TIME_SPENT_LT_RSOC_A:
+      base: uint
+      access: RO
+      start: 0
+      end: 32
+    TIME_SPENT_LT_RSOC_B:
+      base: uint
+      access: RO
+      start: 32
+      end: 64
+    TIME_SPENT_LT_RSOC_C:
+      base: uint
+      access: RO
+      start: 64
+      end: 96
+    TIME_SPENT_LT_RSOC_D:
+      base: uint
+      access: RO
+      start: 96
+      end: 128
+    TIME_SPENT_LT_RSOC_E:
+      base: uint
+      access: RO
+      start: 128
+      end: 160
+    TIME_SPENT_LT_RSOC_F:
+      base: uint
+      access: RO
+      start: 160
+      end: 192
+    TIME_SPENT_LT_RSOC_G:
+      base: uint
+      access: RO
+      start: 192
+      end: 224
+    TIME_SPENT_LT_RSOC_H:
+      base: uint
+      access: RO
+      start: 224
+      end: 256
+
+LIFETIME_DATA_BLOCK_8:
+  type: register
+  address: 0x67
+  size_bits: 256
+  fields:
+    TIME_SPENT_STL_RSOC_A:
+      base: uint
+      access: RO
+      start: 0
+      end: 32
+    TIME_SPENT_STL_RSOC_B:
+      base: uint
+      access: RO
+      start: 32
+      end: 64
+    TIME_SPENT_STL_RSOC_C:
+      base: uint
+      access: RO
+      start: 64
+      end: 96
+    TIME_SPENT_STL_RSOC_D:
+      base: uint
+      access: RO
+      start: 96
+      end: 128
+    TIME_SPENT_STL_RSOC_E:
+      base: uint
+      access: RO
+      start: 128
+      end: 160
+    TIME_SPENT_STL_RSOC_F:
+      base: uint
+      access: RO
+      start: 160
+      end: 192
+    TIME_SPENT_STL_RSOC_G:
+      base: uint
+      access: RO
+      start: 192
+      end: 224
+    TIME_SPENT_STL_RSOC_H:
+      base: uint
+      access: RO
+      start: 224
+      end: 256
+
 TURBO_RHF_EFFECTIVE:
   type: register
   address: 0x68
@@ -3599,6 +4382,98 @@ TURBO_VLOAD:
       access: RO
       start: 0
       end: 16
+
+LIFETIME_DATA_BLOCK_11:
+  type: register
+  address: 0x6A
+  size_bits: 256
+  fields:
+    TIME_SPENT_HT_RSOC_A:
+      base: uint
+      access: RO
+      start: 0
+      end: 32
+    TIME_SPENT_HT_RSOC_B:
+      base: uint
+      access: RO
+      start: 32
+      end: 64
+    TIME_SPENT_HT_RSOC_C:
+      base: uint
+      access: RO
+      start: 64
+      end: 96
+    TIME_SPENT_HT_RSOC_D:
+      base: uint
+      access: RO
+      start: 96
+      end: 128
+    TIME_SPENT_HT_RSOC_E:
+      base: uint
+      access: RO
+      start: 128
+      end: 160
+    TIME_SPENT_HT_RSOC_F:
+      base: uint
+      access: RO
+      start: 160
+      end: 192
+    TIME_SPENT_HT_RSOC_G:
+      base: uint
+      access: RO
+      start: 192
+      end: 224
+    TIME_SPENT_HT_RSOC_H:
+      base: uint
+      access: RO
+      start: 224
+      end: 256
+
+LIFETIME_DATA_BLOCK_12:
+  type: register
+  address: 0x6B
+  size_bits: 256
+  fields:
+    TIME_SPENT_OT_RSOC_A:
+      base: uint
+      access: RO
+      start: 0
+      end: 32
+    TIME_SPENT_OT_RSOC_B:
+      base: uint
+      access: RO
+      start: 32
+      end: 64
+    TIME_SPENT_OT_RSOC_C:
+      base: uint
+      access: RO
+      start: 64
+      end: 96
+    TIME_SPENT_OT_RSOC_D:
+      base: uint
+      access: RO
+      start: 96
+      end: 128
+    TIME_SPENT_OT_RSOC_E:
+      base: uint
+      access: RO
+      start: 128
+      end: 160
+    TIME_SPENT_OT_RSOC_F:
+      base: uint
+      access: RO
+      start: 160
+      end: 192
+    TIME_SPENT_OT_RSOC_G:
+      base: uint
+      access: RO
+      start: 192
+      end: 224
+    TIME_SPENT_OT_RSOC_H:
+      base: uint
+      access: RO
+      start: 224
+      end: 256
 
 MANUFACTURE_INFO:
   type: buffer
@@ -3695,7 +4570,7 @@ DA_STATUS_1:
 DA_STATUS_2:
   type: register
   address: 0x72
-  size_bits: 112
+  size_bits: 208
   access: RO
   fields:
     INT_TEMP:
@@ -3733,6 +4608,36 @@ DA_STATUS_2:
       access: RO
       start: 96
       end: 112
+    GAUGING_TEMP:
+      base: uint
+      access: RO
+      start: 112
+      end: 128
+    USER_TEMP:
+      base: uint
+      access: RO
+      start: 128
+      end: 144
+    UNCOMP_CELL_V_1:
+      base: uint
+      access: RO
+      start: 144
+      end: 160
+    UNCOMP_CELL_V_2:
+      base: uint
+      access: RO
+      start: 160
+      end: 176
+    UNCOMP_CELL_V_3:
+      base: uint
+      access: RO
+      start: 176
+      end: 192
+    UNCOMP_CELL_V_4:
+      base: uint
+      access: RO
+      start: 192
+      end: 208
 
 GAUGE_STATUS_1:
   type: register
@@ -4000,7 +4905,7 @@ GAUGE_STATUS_3:
 CB_STATUS:
   type: register
   address: 0x76
-  size_bits: 64
+  size_bits: 152
   access: RO
   fields:
     CB_TIME_0:
@@ -4023,6 +4928,36 @@ CB_STATUS:
       access: RO
       start: 48
       end: 64
+    CELL_1_BALANCE_DOD:
+      base: uint
+      access: RO
+      start: 64
+      end: 80
+    CELL_2_BALANCE_DOD:
+      base: uint
+      access: RO
+      start: 80
+      end: 96
+    CELL_3_BALANCE_DOD:
+      base: uint
+      access: RO
+      start: 96
+      end: 112
+    CELL_4_BALANCE_DOD:
+      base: uint
+      access: RO
+      start: 112
+      end: 128
+    TOTAL_DOD_CHRG:
+      base: uint
+      access: RO
+      start: 128
+      end: 144
+    CELL_BALANCE_STAT:
+      base: uint
+      access: RO
+      start: 144
+      end: 152
 
 STATE_OF_HEALTH:
   type: register
@@ -4067,4 +5002,3 @@ FILTER_CAPACITY:
       access: RO
       start: 48
       end: 64
-

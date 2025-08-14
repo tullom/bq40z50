@@ -262,10 +262,10 @@ impl<I2C: I2cTrait, Delay: DelayTrait> device_driver::AsyncCommandInterface for 
                 // Write only, writes don't have an output size nor an input size because
                 // writes only consist of the register/command address. So we are done.
                 return Ok(());
-            } else {
-                // Read/write, to be handled in other functions as special cases.
-                unreachable!();
             }
+
+            // Read/write, to be handled in other functions as special cases.
+            unreachable!();
         }
     }
 }

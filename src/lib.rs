@@ -71,6 +71,11 @@ const AUTH_KEY_LEN_BYTES: u8 = AUTH_KEY_DATA_LEN_BYTES + MAC_CMD_ADDR_SIZE_BYTES
 
 const MFG_INFO_CMD: u8 = 0x70;
 
+#[cfg(not(feature = "r1"))]
+const CHRG_VOLTAGE_OVERRIDE_CMD: [u8; MAC_CMD_ADDR_SIZE_BYTES as usize] = 0x00B0u16.to_le_bytes();
+#[cfg(not(feature = "r1"))]
+const CHRG_VOLTAGE_OVERRIDE_SIZE_BYTES: u8 = 10;
+
 const DEFAULT_BUS_RETRIES: usize = 3;
 const DEFAULT_ERROR_BACKOFF_DELAY_MS: u32 = 10;
 #[cfg(feature = "embassy-timeout")]
@@ -80,6 +85,16 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_millis(100);
 enum CapacityModeState {
     Milliamps = 0,
     Centiwatt = 1,
+}
+#[cfg(not(feature = "r1"))]
+/// Charging Voltage Override config struct used in MAC command 0x00B0
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ChargingVoltageOverride {
+    pub low_temp_chrg_mv: u16,
+    pub std_low_temp_chrg_mv: u16,
+    pub std_hi_temp_chrg_mv: u16,
+    pub hi_temp_chrg_mv: u16,
+    pub recommended_temp_chrg_mv: u16,
 }
 
 impl From<field_sets::BatteryStatus> for BatteryStatusFields {
@@ -832,6 +847,59 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50<I2C, DELAY> {
     pub async fn read_mfg_info(&mut self, data: &mut [u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
         self.device.interface.read_with_retries(&[MFG_INFO_CMD], data).await
     }
+
+    /// Write to the `ChargingVoltageOverride` MAC Command.
+    /// # Errors
+    ///
+    /// Will return `Err` if an I2C bus error occurs.
+    #[cfg(not(feature = "r1"))]
+    pub async fn write_charging_voltage_override(
+        &mut self,
+        override_struct: &ChargingVoltageOverride,
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        let mut buf = [0u8; 4 + CHRG_VOLTAGE_OVERRIDE_SIZE_BYTES as usize];
+
+        buf[0] = MAC_CMD;
+        buf[1] = CHRG_VOLTAGE_OVERRIDE_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES;
+        buf[2] = CHRG_VOLTAGE_OVERRIDE_CMD[0];
+        buf[3] = CHRG_VOLTAGE_OVERRIDE_CMD[1];
+        buf[4..6].copy_from_slice(&override_struct.low_temp_chrg_mv.to_le_bytes());
+        buf[6..8].copy_from_slice(&override_struct.std_low_temp_chrg_mv.to_le_bytes());
+        buf[8..10].copy_from_slice(&override_struct.std_hi_temp_chrg_mv.to_le_bytes());
+        buf[10..12].copy_from_slice(&override_struct.hi_temp_chrg_mv.to_le_bytes());
+        buf[12..14].copy_from_slice(&override_struct.recommended_temp_chrg_mv.to_le_bytes());
+
+        self.device.interface.mac_write_with_retries(&buf).await
+    }
+
+    /// Read from the `ChargingVoltageOverride` register.
+    /// # Errors
+    ///
+    /// Will return `Err` if an I2C bus error occurs.
+    /// # Panics
+    /// Safe from Panics as the internal buffer is guaranteed to be large enough (10 bytes).
+    #[cfg(not(feature = "r1"))]
+    pub async fn read_charging_voltage_override(
+        &mut self,
+    ) -> Result<ChargingVoltageOverride, BQ40Z50Error<I2C::Error>> {
+        let mut buf = [0u8; 2 + MAC_CMD_ADDR_SIZE_BYTES as usize];
+        buf[0] = MAC_CMD;
+        buf[1] = MAC_CMD_ADDR_SIZE_BYTES;
+        buf[2] = CHRG_VOLTAGE_OVERRIDE_CMD[0];
+        buf[3] = CHRG_VOLTAGE_OVERRIDE_CMD[1];
+
+        let mut data = [0u8; CHRG_VOLTAGE_OVERRIDE_SIZE_BYTES as usize];
+        self.device.interface.mac_read_with_retries(&buf, &mut data).await?;
+
+        // Safe from Panics as the buffer is guaranteed to be large enough (10 bytes).
+        Ok(ChargingVoltageOverride {
+            low_temp_chrg_mv: u16::from_le_bytes(data[0..2].try_into().unwrap()),
+            std_low_temp_chrg_mv: u16::from_le_bytes(data[2..4].try_into().unwrap()),
+            std_hi_temp_chrg_mv: u16::from_le_bytes(data[4..6].try_into().unwrap()),
+            hi_temp_chrg_mv: u16::from_le_bytes(data[6..8].try_into().unwrap()),
+            recommended_temp_chrg_mv: u16::from_le_bytes(data[8..10].try_into().unwrap()),
+        })
+    }
 }
 
 impl<I2C: I2cTrait, DELAY: DelayTrait> smart_battery::ErrorType for Bq40z50<I2C, DELAY> {
@@ -1358,5 +1426,46 @@ mod tests {
 
         bq.device.interface.i2c.done();
         bq.device.interface.delay.done();
+    }
+
+    #[tokio::test]
+    async fn test_charging_override_voltage() {
+        let expectations = vec![
+            Transaction::write(
+                BQ_ADDR,
+                vec![
+                    0x44, 0x0C, 0xB0, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E,
+                ],
+            ),
+            Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0xB0, 0x00]),
+            Transaction::write_read(
+                BQ_ADDR,
+                vec![0x44],
+                vec![
+                    0x0C, 0xB0, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E,
+                ],
+            ),
+        ];
+        let i2c = Mock::new(&expectations);
+        let mut bq = Bq40z50::new(i2c, NoopDelay::new());
+
+        bq.write_charging_voltage_override(&ChargingVoltageOverride {
+            low_temp_chrg_mv: 11800,
+            std_low_temp_chrg_mv: 12000,
+            std_hi_temp_chrg_mv: 12600,
+            hi_temp_chrg_mv: 12000,
+            recommended_temp_chrg_mv: 11800,
+        })
+        .await
+        .unwrap();
+
+        let override_struct = bq.read_charging_voltage_override().await.unwrap();
+
+        assert_eq!(override_struct.low_temp_chrg_mv, 11800);
+        assert_eq!(override_struct.std_low_temp_chrg_mv, 12000);
+        assert_eq!(override_struct.std_hi_temp_chrg_mv, 12600);
+        assert_eq!(override_struct.hi_temp_chrg_mv, 12000);
+        assert_eq!(override_struct.recommended_temp_chrg_mv, 11800);
+        bq.device.interface.i2c.done();
     }
 }

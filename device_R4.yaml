@@ -2393,32 +2393,6 @@ MAC_OUTPUT_SHORTED_CCADC_CAL:
       start: 176
       end: 192
 
-MAC_VOLTAGE_OVERRIDE:
-  type: command
-  address: 0x44B000
-  size_bits_out: 80
-  fields_out:
-    LOW_TEMP_CHARGE_VOLTAGE:
-      base: uint
-      start: 0
-      end: 16
-    STD_TEMP_LOW_CHARGE_VOLTAGE:
-      base: uint
-      start: 16
-      end: 32
-    STD_TEMP_HIGH_CHARGE_VOLTAGE:
-      base: uint
-      start: 32
-      end: 48
-    HIGH_TEMP_CHARGE_VOLTAGE:
-      base: uint
-      start: 48
-      end: 64
-    RECOMMENDED_TEMP_CHARGE_VOLTAGE:
-      base: uint
-      start: 64
-      end: 80
-
 REMAINING_CAPACITY_ALARM:
   type: register
   address: 0x01

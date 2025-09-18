@@ -54,6 +54,7 @@ const LARGEST_REG_SIZE_BYTES: usize = 5;
 const LARGEST_CMD_SIZE_BYTES: usize = 32;
 #[cfg(any(feature = "r1", feature = "r3", feature = "r4", feature = "r5"))]
 const LARGEST_BUF_SIZE_BYTES: usize = 33;
+const LARGEST_DF_BLOCK_SIZE_BYTES: usize = 32;
 
 const BQ_ADDR: u8 = 0x0Bu8;
 const MAC_CMD_ADDR_SIZE_BYTES: u8 = 2;
@@ -268,6 +269,77 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             return Ok(());
         }
     }
+
+    async fn mac_read_from_df_with_retries(
+        &mut self,
+        starting_address: u16,
+        read: &mut [u8],
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        let mut retries = self.max_bus_retries;
+        let starting_address = starting_address.to_le_bytes();
+
+        // Loop until no bus errors or max bus retries are hit.
+        loop {
+            // Block write intended register.
+            let res = self
+                .i2c
+                .write(
+                    BQ_ADDR,
+                    &[
+                        MAC_CMD,
+                        MAC_CMD_ADDR_SIZE_BYTES,
+                        starting_address[0],
+                        starting_address[1],
+                    ],
+                )
+                .await;
+
+            if let Err(e) = res {
+                if retries == 0 {
+                    return Err(BQ40Z50Error::I2c(e));
+                }
+                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                retries -= 1;
+                continue;
+            }
+
+            // Read in 32 byte chunks. The FG supports an auto-increment on the address during a DF read.
+            // If an SMBus read block is sent, the gauge will return 32 bytes of DF data,
+            // and if a subsequent SMBus read block is sent with command 0x44,
+            // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
+            let mut bytes_left_to_read = read.len();
+            while bytes_left_to_read > 0 {
+                // Largest single read block is 2 bytes starting address + 32 bytes data.
+                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
+                // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
+                // so if we can read less than 32 bytes of DF data, do it.
+                let output_buf_end_idx =
+                    core::cmp::min(output_buf.len(), bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize);
+
+                let res = self
+                    .i2c
+                    .write_read(BQ_ADDR, &[MAC_CMD], &mut output_buf[..output_buf_end_idx])
+                    .await;
+
+                if let Err(e) = res {
+                    if retries == 0 {
+                        return Err(BQ40Z50Error::I2c(e));
+                    }
+                    self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                    retries -= 1;
+                    continue;
+                }
+
+                let start_idx = read.len() - bytes_left_to_read;
+                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize;
+                read[start_idx..end_idx]
+                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx]);
+                bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
+            }
+
+            return Ok(());
+        }
+    }
 }
 
 #[cfg(feature = "embassy-timeout")]
@@ -382,12 +454,124 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             return Ok(());
         }
     }
+
+    async fn mac_read_from_df_with_retries(
+        &mut self,
+        starting_address: u16,
+        read: &mut [u8],
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        let mut retries = self.max_bus_retries;
+        let starting_address = starting_address.to_le_bytes();
+
+        // Loop until no bus errors or max bus retries are hit.
+        loop {
+            // Block write intended register.
+            let res = match with_timeout(
+                self.timeout,
+                self.i2c.write(
+                    BQ_ADDR,
+                    &[
+                        MAC_CMD,
+                        MAC_CMD_ADDR_SIZE_BYTES,
+                        starting_address[0],
+                        starting_address[1],
+                    ],
+                ),
+            )
+            .await
+            {
+                Err(_) => Err(BQ40Z50Error::Timeout),
+                Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
+                Ok(Ok(_)) => Ok(()),
+            };
+
+            if res.is_err() {
+                if retries == 0 {
+                    return res;
+                }
+                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                retries -= 1;
+                continue;
+            }
+
+            // Read in 32 byte chunks. The FG supports an auto-increment on the address during a DF read.
+            // If an SMBus read block is sent, the gauge will return 32 bytes of DF data,
+            // and if a subsequent SMBus read block is sent with command 0x44,
+            // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
+            let mut bytes_left_to_read = read.len();
+            while bytes_left_to_read > 0 {
+                // Largest single read block is 2 bytes starting address + 32 bytes data.
+                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
+                // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
+                // so if we can read less than 32 bytes of DF data, do it.
+                let output_buf_end_idx =
+                    core::cmp::min(output_buf.len(), bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize);
+
+                let res = match with_timeout(
+                    self.timeout,
+                    self.i2c
+                        .write_read(BQ_ADDR, &[MAC_CMD], &mut output_buf[..output_buf_end_idx]),
+                )
+                .await
+                {
+                    Err(_) => Err(BQ40Z50Error::Timeout),
+                    Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
+                    Ok(Ok(_)) => Ok(()),
+                };
+
+                if res.is_err() {
+                    if retries == 0 {
+                        return res;
+                    }
+                    self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                    retries -= 1;
+                    continue;
+                }
+
+                let start_idx = read.len() - bytes_left_to_read;
+                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize;
+                read[start_idx..end_idx]
+                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx]);
+                bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
+            }
+
+            return Ok(());
+        }
+    }
 }
 
 impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
     async fn mac_write_with_retries(&mut self, write: &[u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
         // Same functionality as regular SMBus writes, write buffer just needs to be properly formed.
         self.write_with_retries(write).await
+    }
+
+    async fn mac_write_to_df_with_retries(
+        &mut self,
+        starting_address: u16,
+        write: &[u8],
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        let mut bytes_left_to_write = write.len();
+        while bytes_left_to_write > 0 {
+            // Largest single write block is 1 byte MAC command + 1 byte size + 2 bytes starting address + 32 bytes data.
+            let mut output_buf = [0u8; 4 + LARGEST_DF_BLOCK_SIZE_BYTES as usize];
+            // Determine how many bytes to write to the bus for this chunk.
+            let output_buf_end_idx = core::cmp::min(output_buf.len(), bytes_left_to_write + 4);
+
+            let start_idx = write.len() - bytes_left_to_write;
+            let end_idx = start_idx + output_buf_end_idx - 4;
+            let starting_address_chunk = (starting_address + start_idx as u16).to_le_bytes();
+            output_buf[0] = MAC_CMD;
+            output_buf[1] = output_buf_end_idx as u8 - 2;
+            output_buf[2] = starting_address_chunk[0];
+            output_buf[3] = starting_address_chunk[1];
+            output_buf[4..output_buf_end_idx].copy_from_slice(&write[start_idx..end_idx]);
+
+            self.write_with_retries(&output_buf[..output_buf_end_idx]).await?;
+            bytes_left_to_write = bytes_left_to_write.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
+        }
+
+        return Ok(());
     }
 }
 
@@ -899,6 +1083,52 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50<I2C, DELAY> {
             hi_temp_chrg_mv: u16::from_le_bytes(data[6..8].try_into().unwrap()),
             recommended_temp_chrg_mv: u16::from_le_bytes(data[8..10].try_into().unwrap()),
         })
+    }
+
+    /// Read from the data flash (DF). Refer to the datasheet for the data flash table.
+    ///
+    /// Starting address should be between 0x4000 and 0x5FFF.
+    /// The input argument `read` slice size should reflect the desired number of bytes to be read.
+    ///
+    /// # Note
+    /// The data flash supports returning up to 32 bytes of data per read transaction, however this method can
+    /// handle reads of larger than 32 bytes. On the physical bus, the reads will be chunked into 32 byte blocks.
+    /// Thus, the input argument `read` slice length can be larger than 32 bytes.
+    /// # Errors
+    ///
+    /// Will return `Err` if an I2C bus error occurs.
+    pub async fn read_dataflash(
+        &mut self,
+        starting_address: u16,
+        read: &mut [u8],
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        self.device
+            .interface
+            .mac_read_from_df_with_retries(starting_address, read)
+            .await
+    }
+
+    /// Write to the data flash (DF). Refer to the datasheet for the data flash table.
+    ///
+    /// Starting address should be between 0x4000 and 0x5FFF.
+    /// The input argument `write` slice size should reflect the desired number of bytes to be written.
+    ///
+    /// # Note
+    /// The data flash supports writing up to 32 bytes of data per write transaction, however this method can
+    /// handle writes of larger than 32 bytes. On the physical bus, the writes will be chunked into 32 byte blocks.
+    /// Thus, the input argument `write` slice length can be larger than 32 bytes.
+    /// # Errors
+    ///
+    /// Will return `Err` if an I2C bus error occurs.
+    pub async fn write_dataflash(
+        &mut self,
+        starting_address: u16,
+        write: &[u8],
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        self.device
+            .interface
+            .mac_write_to_df_with_retries(starting_address, write)
+            .await
     }
 }
 
@@ -1466,6 +1696,186 @@ mod tests {
         assert_eq!(override_struct.std_hi_temp_chrg_mv, 12600);
         assert_eq!(override_struct.hi_temp_chrg_mv, 12000);
         assert_eq!(override_struct.recommended_temp_chrg_mv, 11800);
+        bq.device.interface.i2c.done();
+    }
+
+    #[tokio::test]
+    async fn test_df_transactions() {
+        let expectations = vec![
+            // Write 1, 4 bytes (1 block write)
+            Transaction::write(BQ_ADDR, vec![0x44, 0x06, 0x00, 0x40, 0xFE, 0xCA, 0xFE, 0xC0]),
+            // Write 2, 48 bytes (2 block writes)
+            Transaction::write(
+                BQ_ADDR,
+                vec![
+                    0x44, 34, 0x00, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E,
+                    0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
+                    0x38, 0x31, 0xE0,
+                ],
+            ),
+            Transaction::write(
+                BQ_ADDR,
+                vec![
+                    0x44, 18, 0x20, 0x40, 0xFE, 0xCA, 0xFE, 0xC0, 0xFE, 0xCA, 0xFE, 0xC0, 0xFE, 0xCA, 0xFE, 0xC0, 0xFE,
+                    0xCA, 0xFE, 0xC0,
+                ],
+            ),
+            // Write 3, 128 bytes (4 block writes)
+            Transaction::write(
+                BQ_ADDR,
+                vec![
+                    0x44, 34, 0x00, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E,
+                    0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
+                    0x38, 0x31, 0xE0,
+                ],
+            ),
+            Transaction::write(
+                BQ_ADDR,
+                vec![
+                    0x44, 34, 0x20, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E,
+                    0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
+                    0x38, 0x31, 0xE0,
+                ],
+            ),
+            Transaction::write(
+                BQ_ADDR,
+                vec![
+                    0x44, 34, 0x40, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E,
+                    0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
+                    0x38, 0x31, 0xE0,
+                ],
+            ),
+            Transaction::write(
+                BQ_ADDR,
+                vec![
+                    0x44, 34, 0x60, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E,
+                    0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
+                    0x38, 0x31, 0xE0,
+                ],
+            ),
+            // Read 1, 4 bytes (1 block read)
+            Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x00, 0x40]),
+            Transaction::write_read(BQ_ADDR, vec![0x44], vec![0x00, 0x40, 0x01, 0x02, 0x03, 0x04]),
+            // Read 2, 48 bytes (2 block reads)
+            Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x00, 0x40]),
+            Transaction::write_read(
+                BQ_ADDR,
+                vec![0x44],
+                vec![
+                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
+                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
+                    0x2E, 0x18,
+                ],
+            ),
+            Transaction::write_read(
+                BQ_ADDR,
+                vec![0x44],
+                vec![
+                    0x20, 0x40, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD,
+                    0xD0, 0x0D,
+                ],
+            ),
+            // Read 3, 128 bytes (4 block reads)
+            Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x00, 0x40]),
+            Transaction::write_read(
+                BQ_ADDR,
+                vec![0x44],
+                vec![
+                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
+                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
+                    0x2E, 0x18,
+                ],
+            ),
+            Transaction::write_read(
+                BQ_ADDR,
+                vec![0x44],
+                vec![
+                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
+                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
+                    0x2E, 0x18,
+                ],
+            ),
+            Transaction::write_read(
+                BQ_ADDR,
+                vec![0x44],
+                vec![
+                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
+                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
+                    0x2E, 0x18,
+                ],
+            ),
+            Transaction::write_read(
+                BQ_ADDR,
+                vec![0x44],
+                vec![
+                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
+                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
+                    0x2E, 0x18,
+                ],
+            ),
+        ];
+        let i2c = Mock::new(&expectations);
+        let mut bq = Bq40z50::new(i2c, NoopDelay::new());
+
+        // Write 1
+        let write = [0xFEu8, 0xCA, 0xFE, 0xC0];
+        bq.write_dataflash(0x4000, &write).await.unwrap();
+
+        // Write 2
+        let write = [
+            0x03u8, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0,
+            0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0xFE, 0xCA, 0xFE,
+            0xC0, 0xFE, 0xCA, 0xFE, 0xC0, 0xFE, 0xCA, 0xFE, 0xC0, 0xFE, 0xCA, 0xFE, 0xC0,
+        ];
+        bq.write_dataflash(0x4000, &write).await.unwrap();
+
+        // Write 3
+        let write = [
+            0x03u8, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0,
+            0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x03, 0x56, 0x01,
+            0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
+            0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E,
+            0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00,
+            0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E,
+            0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
+            0x38, 0x31, 0xE0,
+        ];
+        bq.write_dataflash(0x4000, &write).await.unwrap();
+
+        // Read 1
+        let mut read = [0u8; 48];
+        bq.read_dataflash(0x4000, &mut read[..4]).await.unwrap();
+        assert_eq!(read[..4], [0x01, 0x02, 0x03, 0x04]);
+
+        // Read 2
+        bq.read_dataflash(0x4000, &mut read).await.unwrap();
+        assert_eq!(
+            read,
+            [
+                0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38,
+                0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0xDE, 0xAD,
+                0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xD0, 0x0D
+            ]
+        );
+
+        // Read 3
+        let mut read = [0u8; 128];
+        bq.read_dataflash(0x4000, &mut read).await.unwrap();
+
+        assert_eq!(
+            read,
+            [
+                0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38,
+                0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x00, 0x18,
+                0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
+                0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x00, 0x18, 0x2E, 0xE0,
+                0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18,
+                0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38,
+                0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00,
+                0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18
+            ]
+        );
+
         bq.device.interface.i2c.done();
     }
 }

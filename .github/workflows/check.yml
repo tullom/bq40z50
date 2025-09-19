@@ -62,6 +62,14 @@ jobs:
         with:
           reporter: 'github-pr-check'
           clippy_flags: --features ${{ matrix.chip-rev }} -- -F clippy::suspicious -F clippy::correctness -F clippy::perf -F clippy::style
+          fail_on_error: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: cargo clippy embassy-timeout ${{ matrix.chip-rev }}
+        uses: giraffate/clippy-action@v1
+        with:
+          reporter: 'github-pr-check'
+          clippy_flags: --features embassy-timeout ${{ matrix.chip-rev }} -- -F clippy::suspicious -F clippy::correctness -F clippy::perf -F clippy::style
+          fail_on_error: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
   # Enable once we have a released crate

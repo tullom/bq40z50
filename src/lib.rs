@@ -546,6 +546,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         self.write_with_retries(write).await
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     async fn mac_write_to_df_with_retries(
         &mut self,
         starting_address: u16,
@@ -554,14 +555,16 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         let mut bytes_left_to_write = write.len();
         while bytes_left_to_write > 0 {
             // Largest single write block is 1 byte MAC command + 1 byte size + 2 bytes starting address + 32 bytes data.
-            let mut output_buf = [0u8; 4 + LARGEST_DF_BLOCK_SIZE_BYTES as usize];
+            let mut output_buf = [0u8; 4 + LARGEST_DF_BLOCK_SIZE_BYTES];
             // Determine how many bytes to write to the bus for this chunk.
             let output_buf_end_idx = core::cmp::min(output_buf.len(), bytes_left_to_write + 4);
 
             let start_idx = write.len() - bytes_left_to_write;
             let end_idx = start_idx + output_buf_end_idx - 4;
+            // Safe cast as start_idx being higher than u16::MAX is impossible, the register map doesn't even go that high.
             let starting_address_chunk = (starting_address + start_idx as u16).to_le_bytes();
             output_buf[0] = MAC_CMD;
+            // Safe cast as output_buf_end_idx can only be as high as output_buf.len(), which is 36
             output_buf[1] = output_buf_end_idx as u8 - 2;
             output_buf[2] = starting_address_chunk[0];
             output_buf[3] = starting_address_chunk[1];
@@ -571,7 +574,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             bytes_left_to_write = bytes_left_to_write.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
         }
 
-        return Ok(());
+        Ok(())
     }
 }
 

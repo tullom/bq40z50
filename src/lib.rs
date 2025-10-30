@@ -628,6 +628,105 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             return Ok(());
         }
     }
+
+    async fn mac_read_from_df_with_retries_pec(
+        &mut self,
+        starting_address: u16,
+        read: &mut [u8],
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        let mut retries = self.config.max_bus_retries;
+        let starting_address = starting_address.to_le_bytes();
+
+        let pec = smbus_pec::pec(&[
+            BQ_ADDR << 1,
+            MAC_CMD,
+            MAC_CMD_ADDR_SIZE_BYTES,
+            starting_address[0],
+            starting_address[1],
+        ]);
+
+        // Loop until no bus errors or max bus retries are hit.
+        loop {
+            // Block write intended register.
+            let res = self
+                .i2c
+                .write(
+                    BQ_ADDR,
+                    &[
+                        MAC_CMD,
+                        MAC_CMD_ADDR_SIZE_BYTES,
+                        starting_address[0],
+                        starting_address[1],
+                        pec,
+                    ],
+                )
+                .await;
+
+            if let Err(e) = res {
+                if retries == 0 {
+                    return Err(BQ40Z50Error::I2c(e));
+                }
+                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                retries -= 1;
+                continue;
+            }
+
+            // Read in 32 byte chunks. The FG supports an auto-increment on the address during a DF read.
+            // If an SMBus read block is sent, the gauge will return 32 bytes of DF data,
+            // and if a subsequent SMBus read block is sent with command 0x44,
+            // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
+            let mut bytes_left_to_read = read.len();
+            while bytes_left_to_read > 0 {
+                // Largest single read block is 2 bytes starting address + 32 bytes data + 1 PEC byte.
+
+                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize + 1];
+                // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
+                // so if we can read less than 32 bytes of DF data, do it.
+                let output_buf_end_idx = core::cmp::min(
+                    output_buf.len(),
+                    bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize + 1,
+                );
+
+                let res = self
+                    .i2c
+                    .write_read(BQ_ADDR, &[MAC_CMD], &mut output_buf[..output_buf_end_idx])
+                    .await;
+
+                if let Err(e) = res {
+                    if retries == 0 {
+                        return Err(BQ40Z50Error::I2c(e));
+                    }
+                    self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                    retries -= 1;
+                    continue;
+                }
+
+                let recvd_pec = output_buf[output_buf_end_idx - 1];
+                let mut pec = smbus_pec::Pec::new();
+                pec.write(&[BQ_ADDR << 1, MAC_CMD, BQ_ADDR << 1 | 0x01]);
+                // Omit PEC
+                pec.write(&output_buf[..output_buf_end_idx - 1]);
+                let pec = pec.finish();
+
+                if u64::from(recvd_pec) != pec {
+                    if retries == 0 {
+                        return Err(BQ40Z50Error::Pec);
+                    }
+                    self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                    retries -= 1;
+                    continue;
+                }
+
+                let start_idx = read.len() - bytes_left_to_read;
+                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize - 1;
+                read[start_idx..end_idx]
+                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx - 1]);
+                bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
+            }
+
+            return Ok(());
+        }
+    }
 }
 
 #[cfg(feature = "embassy-timeout")]
@@ -1103,6 +1202,118 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                     &output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize + 1)
                         ..MAC_CMD_ADDR_SIZE_BYTES as usize + 1 + (end_idx - start_idx)],
                 );
+                bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
+            }
+
+            return Ok(());
+        }
+    }
+
+    async fn mac_read_from_df_with_retries_pec(
+        &mut self,
+        starting_address: u16,
+        read: &mut [u8],
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        let mut retries = self.config.max_bus_retries;
+        let starting_address = starting_address.to_le_bytes();
+
+        let pec = smbus_pec::pec(&[
+            BQ_ADDR << 1,
+            MAC_CMD,
+            MAC_CMD_ADDR_SIZE_BYTES,
+            starting_address[0],
+            starting_address[1],
+        ]);
+
+        // Loop until no bus errors or max bus retries are hit.
+        loop {
+            // Block write intended register.
+            let res = match with_timeout(
+                self.config.timeout,
+                self.i2c.write(
+                    BQ_ADDR,
+                    &[
+                        MAC_CMD,
+                        MAC_CMD_ADDR_SIZE_BYTES,
+                        starting_address[0],
+                        starting_address[1],
+                        pec,
+                    ],
+                ),
+            )
+            .await
+            {
+                Err(_) => Err(BQ40Z50Error::Timeout),
+                Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
+                Ok(Ok(())) => Ok(()),
+            };
+
+            if res.is_err() {
+                if retries == 0 {
+                    return res;
+                }
+                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                retries -= 1;
+                continue;
+            }
+
+            // Read in 32 byte chunks. The FG supports an auto-increment on the address during a DF read.
+            // If an SMBus read block is sent, the gauge will return 32 bytes of DF data,
+            // and if a subsequent SMBus read block is sent with command 0x44,
+            // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
+            let mut bytes_left_to_read = read.len();
+            while bytes_left_to_read > 0 {
+                // Largest single read block is 2 bytes starting address + 32 bytes data + 1 PEC byte.
+
+                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize + 1];
+                // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
+                // so if we can read less than 32 bytes of DF data, do it.
+                let output_buf_end_idx = core::cmp::min(
+                    output_buf.len(),
+                    bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize + 1,
+                );
+
+                let res = match with_timeout(
+                    self.config.timeout,
+                    self.i2c
+                        .write_read(BQ_ADDR, &[MAC_CMD], &mut output_buf[..output_buf_end_idx]),
+                )
+                .await
+                {
+                    Err(_) => Err(BQ40Z50Error::Timeout),
+                    Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
+                    Ok(Ok(())) => Ok(()),
+                };
+
+                if res.is_err() {
+                    if retries == 0 {
+                        return res;
+                    }
+                    self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                    retries -= 1;
+                    continue;
+                }
+
+                let recvd_pec = output_buf[output_buf_end_idx - 1];
+                let mut pec = smbus_pec::Pec::new();
+                pec.write(&[BQ_ADDR << 1, MAC_CMD, BQ_ADDR << 1 | 0x01]);
+                // Omit PEC
+                pec.write(&output_buf[..output_buf_end_idx - 1]);
+                let pec = pec.finish();
+
+                if u64::from(recvd_pec) != pec {
+                    if retries == 0 {
+                        return Err(BQ40Z50Error::Pec);
+                    }
+                    self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                    retries -= 1;
+                    continue;
+                }
+
+                let start_idx = read.len() - bytes_left_to_read;
+                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize - 1;
+                read[start_idx..end_idx]
+                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx - 1]);
                 bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
             }
 

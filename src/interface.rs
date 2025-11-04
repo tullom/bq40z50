@@ -1,12 +1,16 @@
 use core::hash::Hasher;
-use embedded_hal_async::delay::DelayNs as DelayTrait;
-use embedded_hal_async::i2c::I2c as I2cTrait;
-
-use crate::consts::*;
-use crate::{common::Config, error::BQ40Z50Error};
 
 #[cfg(feature = "embassy-timeout")]
 use embassy_time::with_timeout;
+use embedded_hal_async::delay::DelayNs as DelayTrait;
+use embedded_hal_async::i2c::I2c as I2cTrait;
+
+use crate::common::Config;
+use crate::consts::{
+    BQ_ADDR, DEFAULT_ERROR_BACKOFF_DELAY_MS, LARGEST_BUF_SIZE_BYTES, LARGEST_CMD_SIZE_BYTES,
+    LARGEST_DF_BLOCK_SIZE_BYTES, LARGEST_REG_SIZE_BYTES, MAC_CMD, MAC_CMD_ADDR_SIZE_BITS, MAC_CMD_ADDR_SIZE_BYTES,
+};
+use crate::error::BQ40Z50Error;
 
 /// BQ40Z50 interface, common to all chip revisions, which takes an async I2C bus
 pub struct DeviceInterface<I2C: I2cTrait, DELAY: DelayTrait> {

@@ -28,6 +28,7 @@ mod tests;
 mod versions;
 
 // Re-export types for public use
+pub use error::BQ40Z50Error;
 #[cfg(feature = "r1")]
 pub use versions::r1::Bq40z50R1;
 #[cfg(feature = "r3")]
@@ -36,5 +37,3 @@ pub use versions::r3::Bq40z50R3;
 pub use versions::r4::Bq40z50R4;
 #[cfg(feature = "r5")]
 pub use versions::r5::Bq40z50R5;
-
-pub use error::BQ40Z50Error;

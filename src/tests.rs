@@ -5,14 +5,12 @@ macro_rules! bq40z50_tests {
             use embedded_batteries_async::smart_battery::SmartBattery;
             use embedded_hal_mock::eh1::delay::{CheckedDelay, NoopDelay, Transaction as DelayTransaction};
             use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
-
-            use crate::common::*;
-            use crate::consts::*;
-            use crate::interface::*;
+            use $revision as Bq40z50;
 
             use super::*;
-
-            use $revision as Bq40z50;
+            use crate::common::{CapacityModeState, Config};
+            use crate::consts::BQ_ADDR;
+            use crate::interface::*;
 
             // Needed to compile in the pender symbol for embassy-time.
             // This is only enabled during tests and when actually using the driver,

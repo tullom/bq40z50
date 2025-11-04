@@ -3,8 +3,11 @@ use core::cell::Cell;
 use embedded_hal_async::delay::DelayNs as DelayTrait;
 use embedded_hal_async::i2c::I2c as I2cTrait;
 
-use crate::common::*;
-use crate::consts::*;
+use crate::common::{CapacityModeState, Config};
+use crate::consts::{
+    AUTH_KEY_CMD, AUTH_KEY_DATA_LEN_BYTES, AUTH_KEY_LEN_BYTES, LARGEST_BUF_SIZE_BYTES, LARGEST_REG_SIZE_BYTES, MAC_CMD,
+    MAC_CMD_ADDR_SIZE_BYTES, MFG_INFO_CMD, SECURITY_KEYS_CMD, SECURITY_KEYS_DATA_LEN_BYTES, SECURITY_KEYS_LEN_BYTES,
+};
 use crate::error::BQ40Z50Error;
 use crate::interface::DeviceInterface;
 

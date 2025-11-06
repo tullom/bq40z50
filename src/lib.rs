@@ -399,7 +399,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         let write_buf = &write_buf[..=write.len()];
 
         // Read one more byte (PEC)
-        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES];
+        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES + 1];
         let read_buf = &mut read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len() + 1];
 
         // Reuse pec_buf for the block read now that we've computed PEC for the block write.
@@ -499,12 +499,14 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
             let mut bytes_left_to_read = read.len();
             while bytes_left_to_read > 0 {
-                // Largest single read block is 2 bytes starting address + 32 bytes data.
-                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
+                // Largest single read block is 1 byte size + 2 bytes starting address + 32 bytes data.
+                let mut output_buf = [0u8; 1 + LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
                 // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
                 // so if we can read less than 32 bytes of DF data, do it.
-                let output_buf_end_idx =
-                    core::cmp::min(output_buf.len(), bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize);
+                let output_buf_end_idx = core::cmp::min(
+                    output_buf.len(),
+                    bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize + 1,
+                );
 
                 let res = self
                     .i2c
@@ -521,9 +523,9 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                 }
 
                 let start_idx = read.len() - bytes_left_to_read;
-                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize;
+                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize - 1;
                 read[start_idx..end_idx]
-                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx]);
+                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize + 1)..output_buf_end_idx]);
                 bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
             }
 
@@ -579,15 +581,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
             let mut bytes_left_to_read = read.len();
             while bytes_left_to_read > 0 {
-                // Largest single read block is 2 bytes starting address + 32 bytes data + 1 PEC byte.
-
-                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize + 1];
-                // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
-                // so if we can read less than 32 bytes of DF data, do it.
-                let output_buf_end_idx = core::cmp::min(
-                    output_buf.len(),
-                    bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize + 1,
-                );
+                // Largest single read block is 1 byte size + 2 bytes starting address + 32 bytes data + 1 PEC byte.
+                let mut output_buf = [0u8; 1 + LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize + 1];
+                // For PEC, we need to read in 32 byte chunks, even if we have <32 bytes left to read.
+                let output_buf_end_idx = output_buf.len();
 
                 let res = self
                     .i2c
@@ -620,9 +617,11 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                 }
 
                 let start_idx = read.len() - bytes_left_to_read;
-                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize - 1;
-                read[start_idx..end_idx]
-                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx - 1]);
+                let end_idx = start_idx + core::cmp::min(bytes_left_to_read, 32);
+                read[start_idx..end_idx].copy_from_slice(
+                    &output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize + 1)
+                        ..MAC_CMD_ADDR_SIZE_BYTES as usize + 1 + (end_idx - start_idx)],
+                );
                 bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
             }
 
@@ -841,7 +840,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         let write_buf = &write_buf[..=write.len()];
 
         // Read one more byte (PEC)
-        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES];
+        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES + 1];
         let read_buf = &mut read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len() + 1];
 
         // Reuse pec_buf for the block read now that we've computed PEC for the block write.
@@ -960,12 +959,14 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
             let mut bytes_left_to_read = read.len();
             while bytes_left_to_read > 0 {
-                // Largest single read block is 2 bytes starting address + 32 bytes data.
-                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
+                // Largest single read block is 1 byte size + 2 bytes starting address + 32 bytes data.
+                let mut output_buf = [0u8; 1 + LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
                 // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
                 // so if we can read less than 32 bytes of DF data, do it.
-                let output_buf_end_idx =
-                    core::cmp::min(output_buf.len(), bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize);
+                let output_buf_end_idx = core::cmp::min(
+                    output_buf.len(),
+                    bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize + 1,
+                );
 
                 let res = match with_timeout(
                     self.config.timeout,
@@ -989,9 +990,9 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                 }
 
                 let start_idx = read.len() - bytes_left_to_read;
-                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize;
+                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize - 1;
                 read[start_idx..end_idx]
-                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx]);
+                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize + 1)..output_buf_end_idx]);
                 bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
             }
 
@@ -1053,15 +1054,11 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
             let mut bytes_left_to_read = read.len();
             while bytes_left_to_read > 0 {
-                // Largest single read block is 2 bytes starting address + 32 bytes data + 1 PEC byte.
-
-                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize + 1];
+                // Largest single read block is 1 byte size + 2 bytes starting address + 32 bytes data + 1 PEC byte.
+                let mut output_buf = [0u8; 1 + LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize + 1];
                 // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
                 // so if we can read less than 32 bytes of DF data, do it.
-                let output_buf_end_idx = core::cmp::min(
-                    output_buf.len(),
-                    bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize + 1,
-                );
+                let output_buf_end_idx = output_buf.len();
 
                 let res = match with_timeout(
                     self.config.timeout,
@@ -1101,9 +1098,11 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                 }
 
                 let start_idx = read.len() - bytes_left_to_read;
-                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize - 1;
-                read[start_idx..end_idx]
-                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx - 1]);
+                let end_idx = start_idx + core::cmp::min(bytes_left_to_read, 32);
+                read[start_idx..end_idx].copy_from_slice(
+                    &output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize + 1)
+                        ..MAC_CMD_ADDR_SIZE_BYTES as usize + 1 + (end_idx - start_idx)],
+                );
                 bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
             }
 
@@ -1654,7 +1653,16 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50<I2C, DELAY> {
         buf[3] = MFG_INFO_C_CMD[1];
 
         if self.device.interface.config.pec_read {
-            self.device.interface.mac_read_with_retries_pec(&buf, data).await
+            // If reading with PEC, the entire payload needs to be read to verify the PEC byte
+            // This reduces performance because without PEC, we could read parts of the register and NACK early if we
+            // know the size of the data we want to read.
+            let mut read_buf = [0u8; 32];
+            self.device
+                .interface
+                .mac_read_with_retries_pec(&buf, &mut read_buf)
+                .await?;
+            data.copy_from_slice(&read_buf[..data.len()]);
+            Ok(())
         } else {
             self.device.interface.mac_read_with_retries(&buf, data).await
         }
@@ -1695,7 +1703,20 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50<I2C, DELAY> {
     ///
     /// Will return `Err` if an I2C bus error occurs.
     pub async fn read_mfg_info(&mut self, data: &mut [u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        self.device.interface.read_with_retries(&[MFG_INFO_CMD], data).await
+        if self.device.interface.config.pec_read {
+            // If reading with PEC, the entire payload needs to be read to verify the PEC byte
+            // This reduces performance because without PEC, we could read parts of the register and NACK early if we
+            // know the size of the data we want to read.
+            let mut read_buf = [0u8; 32];
+            self.device
+                .interface
+                .read_with_retries(&[MFG_INFO_CMD], &mut read_buf)
+                .await?;
+            data.copy_from_slice(&read_buf[..data.len()]);
+            Ok(())
+        } else {
+            self.device.interface.read_with_retries(&[MFG_INFO_CMD], data).await
+        }
     }
 
     /// Write to the `ChargingVoltageOverride` MAC Command.
@@ -1946,26 +1967,38 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> smart_battery::SmartBattery for Bq40z50<I
         Ok(self.device.avg_current().read_async().await?.avg_current())
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     async fn max_error(&mut self) -> Result<smart_battery::Percent, Self::Error> {
-        Ok(self.device.max_error().read_async().await?.max_error())
+        // Even though the datasheet of the fuel gauge says the data is 1 byte, through PEC testing the fuel gauge
+        // actually returns 2 bytes. The rage of the data is 0 - 100 so it wll never exceed 1 byte, but in order to
+        // receive the PEC byte we need to read 2 bytes of data.
+        Ok(self.device.max_error().read_async().await?.max_error() as u8)
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     async fn relative_state_of_charge(&mut self) -> Result<smart_battery::Percent, Self::Error> {
+        // Even though the datasheet of the fuel gauge says the data is 1 byte, through PEC testing the fuel gauge
+        // actually returns 2 bytes. The rage of the data is 0 - 100 so it wll never exceed 1 byte, but in order to
+        // receive the PEC byte we need to read 2 bytes of data.
         Ok(self
             .device
             .relative_state_of_charge()
             .read_async()
             .await?
-            .relative_state_of_charge())
+            .relative_state_of_charge() as u8)
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     async fn absolute_state_of_charge(&mut self) -> Result<smart_battery::Percent, Self::Error> {
+        // Even though the datasheet of the fuel gauge says the data is 1 byte, through PEC testing the fuel gauge
+        // actually returns 2 bytes. The rage of the data is 0 - 100 so it wll never exceed 1 byte, but in order to
+        // receive the PEC byte we need to read 2 bytes of data.
         Ok(self
             .device
             .absolute_state_of_charge()
             .read_async()
             .await?
-            .absolute_state_of_charge())
+            .absolute_state_of_charge() as u8)
     }
 
     async fn remaining_capacity(&mut self) -> Result<smart_battery::CapacityModeValue, Self::Error> {
@@ -2459,6 +2492,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_read_mfg_info_c_pec() {
+        let expectations = vec![
+            Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x7B, 0x00, 89]),
+            Transaction::write_read(
+                BQ_ADDR,
+                vec![0x44],
+                vec![
+                    0x22, 0x7B, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x18, 0x2E, 0xE0,
+                    0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18,
+                    0x2E, 0x44, 0x32, 0xD4,
+                ],
+            ),
+        ];
+        let i2c = Mock::new(&expectations);
+        let mut bq = Bq40z50::new_with_config(
+            i2c,
+            NoopDelay::new(),
+            Config {
+                pec_read: true,
+                pec_write: true,
+                ..Default::default()
+            },
+        );
+
+        let mut buf = [0u8; 32];
+        bq.read_mfg_info_c(&mut buf).await.unwrap();
+
+        bq.device.interface.i2c.done();
+    }
+
+    #[tokio::test]
     async fn test_df_transactions() {
         let expectations = vec![
             // Write 1, 4 bytes (1 block write)
@@ -2514,24 +2578,24 @@ mod tests {
             ),
             // Read 1, 4 bytes (1 block read)
             Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x00, 0x40]),
-            Transaction::write_read(BQ_ADDR, vec![0x44], vec![0x00, 0x40, 0x01, 0x02, 0x03, 0x04]),
+            Transaction::write_read(BQ_ADDR, vec![0x44], vec![0x22, 0x00, 0x40, 0x01, 0x02, 0x03, 0x04]),
             // Read 2, 48 bytes (2 block reads)
             Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x00, 0x40]),
             Transaction::write_read(
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x2E, 0x18,
+                    0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
+                    0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                    0xE0, 0x2E, 0x18,
                 ],
             ),
             Transaction::write_read(
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x20, 0x40, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD,
-                    0xD0, 0x0D,
+                    0x22, 0x20, 0x40, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE,
+                    0xAD, 0xD0, 0x0D,
                 ],
             ),
             // Read 3, 128 bytes (4 block reads)
@@ -2540,36 +2604,36 @@ mod tests {
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x2E, 0x18,
+                    0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
+                    0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                    0xE0, 0x2E, 0x18,
                 ],
             ),
             Transaction::write_read(
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x2E, 0x18,
+                    0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
+                    0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                    0xE0, 0x2E, 0x18,
                 ],
             ),
             Transaction::write_read(
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x2E, 0x18,
+                    0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
+                    0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                    0xE0, 0x2E, 0x18,
                 ],
             ),
             Transaction::write_read(
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x2E, 0x18,
+                    0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
+                    0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                    0xE0, 0x2E, 0x18,
                 ],
             ),
         ];
@@ -2692,12 +2756,17 @@ mod tests {
                     0x38, 0x31, 0xE0, 0x7F, // PEC
                 ],
             ),
+            // PEC reads will always read in 32 byte data chunks.
             // Read 1, 4 bytes (1 block read)
             Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x00, 0x40, 0xAB /* PEC */]),
             Transaction::write_read(
                 BQ_ADDR,
                 vec![0x44],
-                vec![0x00, 0x40, 0x01, 0x02, 0x03, 0x04, 0xEF /* PEC */],
+                vec![
+                    0x22, 0x00, 0x40, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01,
+                    0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01,
+                    0x02, 0x03, 0x04, 0x44, /* PEC */
+                ],
             ),
             // Read 2, 48 bytes (2 block reads)
             Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x00, 0x40, 0xAB /* PEC */]),
@@ -2705,17 +2774,18 @@ mod tests {
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x2E, 0x18, 0xE8, // PEC
+                    0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
+                    0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                    0xE0, 0x2E, 0x18, 0x22, // PEC
                 ],
             ),
             Transaction::write_read(
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x20, 0x40, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD,
-                    0xD0, 0x0D, 0x5C, // PEC
+                    0x22, 0x20, 0x40, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE,
+                    0xAD, 0xD0, 0x0D, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE, 0xAD, 0xDE,
+                    0xAD, 0xD0, 0x0D, 0xE0, // PEC
                 ],
             ),
             // Read 3, 128 bytes (4 block reads)
@@ -2724,36 +2794,36 @@ mod tests {
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x2E, 0x18, 0xE8, // PEC
+                    0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
+                    0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                    0xE0, 0x2E, 0x18, 0x22, // PEC
                 ],
             ),
             Transaction::write_read(
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x2E, 0x18, 0xE8, // PEC
+                    0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
+                    0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                    0xE0, 0x2E, 0x18, 0x22, // PEC
                 ],
             ),
             Transaction::write_read(
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x2E, 0x18, 0xE8, // PEC
+                    0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
+                    0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                    0xE0, 0x2E, 0x18, 0x22, // PEC
                 ],
             ),
             Transaction::write_read(
                 BQ_ADDR,
                 vec![0x44],
                 vec![
-                    0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x2E, 0x18, 0xE8, // PEC
+                    0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
+                    0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                    0xE0, 0x2E, 0x18, 0x22, // PEC
                 ],
             ),
         ];

@@ -8,7 +8,4 @@ fn main() {
     println!("cargo:rebuild-if-changed=device_R4.yaml");
     #[cfg(feature = "r5")]
     println!("cargo:rebuild-if-changed=device_R5.yaml");
-
-    #[cfg(not(any(feature = "r1", feature = "r3", feature = "r4", feature = "r5")))]
-    compile_error!("Please enable a chip revision feature that corresponds to the one you are using!");
 }

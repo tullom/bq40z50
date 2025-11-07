@@ -1,9 +1,5 @@
-// Gated as future revisions of this chip may have larger register sizes.
-#[cfg(any(feature = "r1", feature = "r3", feature = "r4", feature = "r5"))]
 pub(crate) const LARGEST_REG_SIZE_BYTES: usize = 5;
-#[cfg(any(feature = "r1", feature = "r3", feature = "r4", feature = "r5"))]
 pub(crate) const LARGEST_CMD_SIZE_BYTES: usize = 32;
-#[cfg(any(feature = "r1", feature = "r3", feature = "r4", feature = "r5"))]
 pub(crate) const LARGEST_BUF_SIZE_BYTES: usize = 33;
 pub(crate) const LARGEST_DF_BLOCK_SIZE_BYTES: usize = 32;
 

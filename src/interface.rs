@@ -301,7 +301,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         let write_buf = &write_buf[..=write.len()];
 
         // Read one more byte (PEC)
-        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES];
+        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES + 1];
         let read_buf = &mut read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len() + 1];
 
         // Reuse pec_buf for the block read now that we've computed PEC for the block write.
@@ -401,12 +401,14 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
             let mut bytes_left_to_read = read.len();
             while bytes_left_to_read > 0 {
-                // Largest single read block is 2 bytes starting address + 32 bytes data.
-                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
+                // Largest single read block is 1 byte size + 2 bytes starting address + 32 bytes data.
+                let mut output_buf = [0u8; 1 + LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
                 // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
                 // so if we can read less than 32 bytes of DF data, do it.
-                let output_buf_end_idx =
-                    core::cmp::min(output_buf.len(), bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize);
+                let output_buf_end_idx = core::cmp::min(
+                    output_buf.len(),
+                    bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize + 1,
+                );
 
                 let res = self
                     .i2c
@@ -423,9 +425,9 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                 }
 
                 let start_idx = read.len() - bytes_left_to_read;
-                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize;
+                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize - 1;
                 read[start_idx..end_idx]
-                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx]);
+                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize + 1)..output_buf_end_idx]);
                 bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
             }
 
@@ -481,15 +483,11 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
             let mut bytes_left_to_read = read.len();
             while bytes_left_to_read > 0 {
-                // Largest single read block is 2 bytes starting address + 32 bytes data + 1 PEC byte.
+                // Largest single read block is 1 byte size + 2 bytes starting address + 32 bytes data + 1 PEC byte.
+                let mut output_buf = [0u8; 1 + LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize + 1];
 
-                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize + 1];
-                // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
-                // so if we can read less than 32 bytes of DF data, do it.
-                let output_buf_end_idx = core::cmp::min(
-                    output_buf.len(),
-                    bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize + 1,
-                );
+                // For PEC, we need to read in 32 byte chunks, even if we have <32 bytes left to read.
+                let output_buf_end_idx = output_buf.len();
 
                 let res = self
                     .i2c
@@ -522,9 +520,12 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                 }
 
                 let start_idx = read.len() - bytes_left_to_read;
-                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize - 1;
-                read[start_idx..end_idx]
-                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx - 1]);
+
+                let end_idx = start_idx + core::cmp::min(bytes_left_to_read, 32);
+                read[start_idx..end_idx].copy_from_slice(
+                    &output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize + 1)
+                        ..MAC_CMD_ADDR_SIZE_BYTES as usize + 1 + (end_idx - start_idx)],
+                );
                 bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
             }
 
@@ -736,7 +737,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         let write_buf = &write_buf[..=write.len()];
 
         // Read one more byte (PEC)
-        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES];
+        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES + 1];
         let read_buf = &mut read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len() + 1];
 
         // Reuse pec_buf for the block read now that we've computed PEC for the block write.
@@ -855,12 +856,14 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
             let mut bytes_left_to_read = read.len();
             while bytes_left_to_read > 0 {
-                // Largest single read block is 2 bytes starting address + 32 bytes data.
-                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
+                // Largest single read block is 1 byte size + 2 bytes starting address + 32 bytes data.
+                let mut output_buf = [0u8; 1 + LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
                 // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
                 // so if we can read less than 32 bytes of DF data, do it.
-                let output_buf_end_idx =
-                    core::cmp::min(output_buf.len(), bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize);
+                let output_buf_end_idx = core::cmp::min(
+                    output_buf.len(),
+                    bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize + 1,
+                );
 
                 let res = match with_timeout(
                     self.config.timeout,
@@ -884,9 +887,9 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                 }
 
                 let start_idx = read.len() - bytes_left_to_read;
-                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize;
+                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize - 1;
                 read[start_idx..end_idx]
-                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx]);
+                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize + 1)..output_buf_end_idx]);
                 bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
             }
 
@@ -948,15 +951,11 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             // the gauge returns another 32 bytes of DF data starting at the starting address + 32.
             let mut bytes_left_to_read = read.len();
             while bytes_left_to_read > 0 {
-                // Largest single read block is 2 bytes starting address + 32 bytes data + 1 PEC byte.
+                // Largest single read block is 1 byte size + 2 bytes starting address + 32 bytes data + 1 PEC byte.
+                let mut output_buf = [0u8; 1 + LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize + 1];
 
-                let mut output_buf = [0u8; LARGEST_DF_BLOCK_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize + 1];
-                // Determine how many bytes to read from the bus, ideally we want to minimize time reading from DF
-                // so if we can read less than 32 bytes of DF data, do it.
-                let output_buf_end_idx = core::cmp::min(
-                    output_buf.len(),
-                    bytes_left_to_read + MAC_CMD_ADDR_SIZE_BYTES as usize + 1,
-                );
+                // For PEC, we need to read in 32 byte chunks, even if we have <32 bytes left to read.
+                let output_buf_end_idx = output_buf.len();
 
                 let res = match with_timeout(
                     self.config.timeout,
@@ -996,9 +995,11 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                 }
 
                 let start_idx = read.len() - bytes_left_to_read;
-                let end_idx = start_idx + output_buf_end_idx - MAC_CMD_ADDR_SIZE_BYTES as usize - 1;
-                read[start_idx..end_idx]
-                    .copy_from_slice(&output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize)..output_buf_end_idx - 1]);
+                let end_idx = start_idx + core::cmp::min(bytes_left_to_read, 32);
+                read[start_idx..end_idx].copy_from_slice(
+                    &output_buf[(MAC_CMD_ADDR_SIZE_BYTES as usize + 1)
+                        ..MAC_CMD_ADDR_SIZE_BYTES as usize + 1 + (end_idx - start_idx)],
+                );
                 bytes_left_to_read = bytes_left_to_read.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
             }
 

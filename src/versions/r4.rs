@@ -308,7 +308,16 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R4<I2C, DELAY> {
         buf[3] = MFG_INFO_C_CMD[1];
 
         if self.device.interface.config.pec_read {
-            self.device.interface.mac_read_with_retries_pec(&buf, data).await
+            // If reading with PEC, the entire payload needs to be read to verify the PEC byte
+            // This reduces performance because without PEC, we could read parts of the register and NACK early if we
+            // know the size of the data we want to read.
+            let mut read_buf = [0u8; 32];
+            self.device
+                .interface
+                .mac_read_with_retries_pec(&buf, &mut read_buf)
+                .await?;
+            data.copy_from_slice(&read_buf[..data.len()]);
+            Ok(())
         } else {
             self.device.interface.mac_read_with_retries(&buf, data).await
         }
@@ -349,7 +358,20 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R4<I2C, DELAY> {
     ///
     /// Will return `Err` if an I2C bus error occurs.
     pub async fn read_mfg_info(&mut self, data: &mut [u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        self.device.interface.read_with_retries(&[MFG_INFO_CMD], data).await
+        if self.device.interface.config.pec_read {
+            // If reading with PEC, the entire payload needs to be read to verify the PEC byte
+            // This reduces performance because without PEC, we could read parts of the register and NACK early if we
+            // know the size of the data we want to read.
+            let mut read_buf = [0u8; 32];
+            self.device
+                .interface
+                .read_with_retries(&[MFG_INFO_CMD], &mut read_buf)
+                .await?;
+            data.copy_from_slice(&read_buf[..data.len()]);
+            Ok(())
+        } else {
+            self.device.interface.read_with_retries(&[MFG_INFO_CMD], data).await
+        }
     }
 
     /// Write to the `ChargingVoltageOverride` MAC Command.

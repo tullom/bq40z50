@@ -32,8 +32,8 @@ pub(crate) enum CapacityModeState {
 }
 
 #[allow(clippy::struct_field_names)]
-#[cfg(not(all(feature = "r1", not(any(feature = "r3", feature = "r4", feature = "r5")))))]
-/// Charging Voltage Override config struct used in MAC command 0x00B0
+#[cfg(any(feature = "r3", feature = "r4", feature = "r5"))]
+/// Charging Voltage Override config struct used in MAC command 0x00B0, not used in R1
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChargingVoltageOverride {
     pub low_temp_chrg_mv: u16,
@@ -219,26 +219,38 @@ macro_rules! implement_embedded_batteries {
                 Ok(self.device.avg_current().read_async().await?.avg_current())
             }
 
+            #[allow(clippy::cast_possible_truncation)]
             async fn max_error(&mut self) -> Result<smart_battery::Percent, Self::Error> {
-                Ok(self.device.max_error().read_async().await?.max_error())
+                // Even though the datasheet of the fuel gauge says the data is 1 byte, through PEC testing the fuel gauge
+                // actually returns 2 bytes. The rage of the data is 0 - 100 so it wll never exceed 1 byte, but in order to
+                // receive the PEC byte we need to read 2 bytes of data.
+                Ok(self.device.max_error().read_async().await?.max_error() as u8)
             }
 
+            #[allow(clippy::cast_possible_truncation)]
             async fn relative_state_of_charge(&mut self) -> Result<smart_battery::Percent, Self::Error> {
+                // Even though the datasheet of the fuel gauge says the data is 1 byte, through PEC testing the fuel gauge
+                // actually returns 2 bytes. The rage of the data is 0 - 100 so it wll never exceed 1 byte, but in order to
+                // receive the PEC byte we need to read 2 bytes of data.
                 Ok(self
                     .device
                     .relative_state_of_charge()
                     .read_async()
                     .await?
-                    .relative_state_of_charge())
+                    .relative_state_of_charge() as u8)
             }
 
+            #[allow(clippy::cast_possible_truncation)]
             async fn absolute_state_of_charge(&mut self) -> Result<smart_battery::Percent, Self::Error> {
+                // Even though the datasheet of the fuel gauge says the data is 1 byte, through PEC testing the fuel gauge
+                // actually returns 2 bytes. The rage of the data is 0 - 100 so it wll never exceed 1 byte, but in order to
+                // receive the PEC byte we need to read 2 bytes of data.
                 Ok(self
                     .device
                     .absolute_state_of_charge()
                     .read_async()
                     .await?
-                    .absolute_state_of_charge())
+                    .absolute_state_of_charge() as u8)
             }
 
             async fn remaining_capacity(&mut self) -> Result<smart_battery::CapacityModeValue, Self::Error> {

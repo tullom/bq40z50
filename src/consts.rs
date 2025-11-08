@@ -3,10 +3,10 @@ pub(crate) const LARGEST_CMD_SIZE_BYTES: usize = 32;
 pub(crate) const LARGEST_BUF_SIZE_BYTES: usize = 33;
 pub(crate) const LARGEST_DF_BLOCK_SIZE_BYTES: usize = 32;
 
-pub(crate) const BQ_ADDR: u8 = 0x0Bu8;
+pub(crate) const BQ_ADDR: u8 = 0x0B;
 pub(crate) const MAC_CMD_ADDR_SIZE_BYTES: u8 = 2;
 pub(crate) const MAC_CMD_ADDR_SIZE_BITS: u8 = MAC_CMD_ADDR_SIZE_BYTES * 8;
-pub(crate) const MAC_CMD: u8 = 0x44u8;
+pub(crate) const MAC_CMD: u8 = 0x44;
 
 // Special case MAC commands
 pub(crate) const SECURITY_KEYS_CMD: [u8; MAC_CMD_ADDR_SIZE_BYTES as usize] = 0x0035u16.to_le_bytes();

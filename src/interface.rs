@@ -31,14 +31,13 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
 }
 
 impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
-    pub(crate) async fn mac_write_with_retries(&mut self, write: &[u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
+    pub(crate) async fn mac_write_with_retries(
+        &mut self,
+        write: &[u8],
+        use_pec: bool,
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         // Same functionality as regular SMBus writes, write buffer just needs to be properly formed.
-        self.write_with_retries(write).await
-    }
-
-    pub(crate) async fn mac_write_with_retries_pec(&mut self, write: &[u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        // Same functionality as regular SMBus writes, write buffer just needs to be properly formed.
-        self.write_with_retries_pec(write).await
+        self.write_with_retries(write, use_pec).await
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -46,37 +45,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         &mut self,
         starting_address: u16,
         write: &[u8],
-    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        let mut bytes_left_to_write = write.len();
-        while bytes_left_to_write > 0 {
-            // Largest single write block is 1 byte MAC command + 1 byte size + 2 bytes starting address + 32 bytes data.
-            let mut output_buf = [0u8; 4 + LARGEST_DF_BLOCK_SIZE_BYTES];
-            // Determine how many bytes to write to the bus for this chunk.
-            let output_buf_end_idx = core::cmp::min(output_buf.len(), bytes_left_to_write + 4);
-
-            let start_idx = write.len() - bytes_left_to_write;
-            let end_idx = start_idx + output_buf_end_idx - 4;
-            // Safe cast as start_idx being higher than u16::MAX is impossible, the register map doesn't even go that high.
-            let starting_address_chunk = (starting_address + start_idx as u16).to_le_bytes();
-            output_buf[0] = MAC_CMD;
-            // Safe cast as output_buf_end_idx can only be as high as output_buf.len(), which is 36
-            output_buf[1] = output_buf_end_idx as u8 - 2;
-            output_buf[2] = starting_address_chunk[0];
-            output_buf[3] = starting_address_chunk[1];
-            output_buf[4..output_buf_end_idx].copy_from_slice(&write[start_idx..end_idx]);
-
-            self.write_with_retries(&output_buf[..output_buf_end_idx]).await?;
-            bytes_left_to_write = bytes_left_to_write.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
-        }
-
-        Ok(())
-    }
-
-    #[allow(clippy::cast_possible_truncation)]
-    pub(crate) async fn mac_write_to_df_with_retries_pec(
-        &mut self,
-        starting_address: u16,
-        write: &[u8],
+        use_pec: bool,
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         let mut bytes_left_to_write = write.len();
         while bytes_left_to_write > 0 {
@@ -95,14 +64,21 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             output_buf[2] = starting_address_chunk[0];
             output_buf[3] = starting_address_chunk[1];
             output_buf[4..output_buf_end_idx].copy_from_slice(&write[start_idx..end_idx]);
-            // Add PEC at the end.
-            let mut pec = smbus_pec::Pec::new();
-            pec.write(&[BQ_ADDR << 1]);
-            pec.write(&output_buf[..output_buf_end_idx]);
-            // Safe cast as SMBUS PEC is a u8, returned value is u64 because of the Hasher trait.
-            output_buf[output_buf_end_idx] = pec.finish() as u8;
 
-            self.write_with_retries(&output_buf[..=output_buf_end_idx]).await?;
+            if use_pec {
+                // Add PEC at the end.
+                let mut pec = smbus_pec::Pec::new();
+                pec.write(&[BQ_ADDR << 1]);
+                pec.write(&output_buf[..output_buf_end_idx]);
+                // Safe cast as SMBUS PEC is a u8, returned value is u64 because of the Hasher trait.
+                output_buf[output_buf_end_idx] = pec.finish() as u8;
+                self.write_with_retries_internal(&output_buf[..=output_buf_end_idx])
+                    .await?;
+            } else {
+                self.write_with_retries_internal(&output_buf[..output_buf_end_idx])
+                    .await?;
+            }
+
             bytes_left_to_write = bytes_left_to_write.saturating_sub(LARGEST_DF_BLOCK_SIZE_BYTES);
         }
 
@@ -130,68 +106,59 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         Ok(())
     }
 
-    pub(crate) async fn write_with_retries(&mut self, write: &[u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        self.write_with_retries_internal(write).await
-    }
-
-    pub(crate) async fn write_with_retries_pec(&mut self, write: &[u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        // Buffer to hold the entire message to compute PEC on
-        let mut pec_buf = [0u8; LARGEST_REG_SIZE_BYTES * 2];
-        // Device Addr + Write Bit (0)
-        pec_buf[0] = BQ_ADDR << 1;
-        pec_buf[1..=write.len()].copy_from_slice(write);
-
-        // Write one more byte (PEC)
+    pub(crate) async fn write_with_retries(
+        &mut self,
+        write: &[u8],
+        use_pec: bool,
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         let mut write_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES];
-        write_buf[..write.len()].copy_from_slice(write);
-        write_buf[write.len()] = smbus_pec::pec(&pec_buf[..=write.len()]);
+        let write_buf_ref: &[u8];
+        if use_pec {
+            let mut pec = smbus_pec::Pec::default();
+            // Device Addr + Write Bit (0)
+            pec.write_u8(BQ_ADDR << 1);
+            pec.write(write);
 
-        // Include everything we want to write plus the PEC byte
-        let write_buf = &write_buf[..=write.len()];
+            // Write one more byte (PEC)
+            write_buf[..write.len()].copy_from_slice(write);
+            write_buf[write.len()] = pec.finish().try_into().unwrap();
 
-        self.write_with_retries_internal(write_buf).await
+            // Include everything we want to write plus the PEC byte
+            write_buf_ref = &write_buf[..=write.len()];
+        } else {
+            write_buf_ref = write;
+        }
+        self.write_with_retries_internal(write_buf_ref).await
     }
 
     pub(crate) async fn read_with_retries(
         &mut self,
         write: &[u8],
-        read: &mut [u8],
+        mut read: &mut [u8],
+        use_pec: bool,
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         let mut retries = self.config.max_bus_retries;
-
-        while let Err(e) = self.i2c.write_read(BQ_ADDR, write, read).await {
-            if retries == 0 {
-                return Err(BQ40Z50Error::I2c(e));
-            }
-            retries -= 1;
-            // Delay 10ms since the fuel gauge might be "thinking" from a previous command
-            self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
-        }
-
-        Ok(())
-    }
-
-    pub(crate) async fn read_with_retries_pec(
-        &mut self,
-        write: &[u8],
-        read: &mut [u8],
-    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        let mut retries = self.config.max_bus_retries;
-
-        // Buffer to hold the entire message, including write and read, to compute PEC on
-        let mut pec_buf = [0u8; LARGEST_REG_SIZE_BYTES * 2];
-        // Device Addr + Write Bit (0)
-        pec_buf[0] = BQ_ADDR << 1;
-        pec_buf[1..=write.len()].copy_from_slice(write);
-        // Device Addr + Read Bit (1)
-        pec_buf[write.len() + 1] = BQ_ADDR << 1 | 0x01;
-
-        // Read one more byte (PEC)
+        // Read buffer with one extra space at the end, in case we use PEC
         let mut read_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES];
-        let read_buf = &mut read_buf[..=read.len()];
+        let mut pec = smbus_pec::Pec::default();
+
+        let read_len = read.len();
+
+        let read_buf_ref = if use_pec {
+            // Device Addr + Write Bit (0)
+            pec.write_u8(BQ_ADDR << 1);
+            pec.write(write);
+            // Device Addr + Read Bit (1)
+            pec.write_u8(BQ_ADDR << 1 | 0x01);
+
+            // Read one more byte (PEC)
+            &mut read_buf[..=read_len]
+        } else {
+            &mut read
+        };
 
         loop {
-            let res = self.i2c.write_read(BQ_ADDR, write, read_buf).await;
+            let res = self.i2c.write_read(BQ_ADDR, write, read_buf_ref).await;
 
             if let Err(e) = res {
                 if retries == 0 {
@@ -203,23 +170,24 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                 continue;
             }
 
-            let recvd_pec = read_buf[read.len()];
-            // Copy just read bytes to pec_buf, without the PEC byte
-            pec_buf[2 + write.len()..2 + write.len() + read.len()].copy_from_slice(&read_buf[..read.len()]);
+            if use_pec {
+                let recvd_pec = read_buf_ref[read_len];
+                pec.write(&read_buf_ref[..read_len]);
 
-            // Check PEC
-            if recvd_pec != smbus_pec::pec(&pec_buf[..2 + write.len() + read.len()]) {
-                if retries == 0 {
-                    return Err(BQ40Z50Error::Pec);
+                // Check PEC
+                if recvd_pec != pec.finish().try_into().unwrap() {
+                    if retries == 0 {
+                        return Err(BQ40Z50Error::Pec);
+                    }
+                    retries -= 1;
+                    // Delay 10ms since the fuel gauge might be "thinking" from a previous command
+                    self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                    continue;
                 }
-                retries -= 1;
-                // Delay 10ms since the fuel gauge might be "thinking" from a previous command
-                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
-                continue;
+                // If all is good, copy bytes we read into read.
+                read.copy_from_slice(&read_buf[..read_len]);
             }
 
-            // If all is good, copy bytes we read into read.
-            read.copy_from_slice(&read_buf[..read.len()]);
             return Ok(());
         }
     }
@@ -228,91 +196,40 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         &mut self,
         write: &[u8],
         read: &mut [u8],
+        use_pec: bool,
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         let mut retries = self.config.max_bus_retries;
-
-        // Loop until no bus errors or max bus retries are hit.
-        loop {
-            // Block write intended register.
-            let res = self.i2c.write(BQ_ADDR, write).await;
-
-            if let Err(e) = res {
-                if retries == 0 {
-                    return Err(BQ40Z50Error::I2c(e));
-                }
-                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
-                retries -= 1;
-                continue;
-            }
-
-            // For read only commands.
-            // Block read using I2C write_read, sending 0x44 as the command.
-            // Response looks like [ Length (1 byte) | Command (2 bytes) | Data (output.len() bytes)]
-            let mut output_buf = [0u8; 1 + LARGEST_CMD_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
-
-            let res = self
-                .i2c
-                .write_read(
-                    BQ_ADDR,
-                    &[write[0]],
-                    &mut output_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()],
-                )
-                .await;
-
-            if let Err(e) = res {
-                if retries == 0 {
-                    return Err(BQ40Z50Error::I2c(e));
-                }
-                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
-                retries -= 1;
-                continue;
-            }
-
-            read.copy_from_slice(
-                &output_buf
-                    [(1 + MAC_CMD_ADDR_SIZE_BYTES as usize)..(1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len())],
-            );
-
-            return Ok(());
-        }
-    }
-
-    #[allow(clippy::range_plus_one)]
-    pub(crate) async fn mac_read_with_retries_pec(
-        &mut self,
-        write: &[u8],
-        read: &mut [u8],
-    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        let mut retries = self.config.max_bus_retries;
-
-        // Buffer to hold the entire message to compute PEC on
-        let mut pec_buf = [0u8; 2 + LARGEST_CMD_SIZE_BYTES + 2 + MAC_CMD_ADDR_SIZE_BYTES as usize];
-        pec_buf[0] = BQ_ADDR << 1;
-        pec_buf[1..=write.len()].copy_from_slice(write);
-
-        // Compute PEC for the Write Block
-        // Write one more byte (PEC)
+        // Read buffer with one extra space at the end, in case we use PEC
+        // Response looks like [ Length (1 byte) | Command (2 bytes) | Data (output.len() bytes)]
+        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES + 1];
+        // Write buffer with one extra space at the end, in case we use PEC
         // [ MAC_CMD (0x44) | CMD_SIZE | CMD_LSB | CMD_MSB | PEC ]
         let mut write_buf = [0u8; 1 + 2 + MAC_CMD_ADDR_SIZE_BYTES as usize];
-        write_buf[..write.len()].copy_from_slice(write);
-        write_buf[write.len()] = smbus_pec::pec(&pec_buf[..=write.len()]);
 
-        // Include everything we want to write plus the PEC byte
-        let write_buf = &write_buf[..=write.len()];
+        let write_buf_ref: &[u8];
+        let read_buf_ref: &mut [u8];
 
-        // Read one more byte (PEC)
-        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES + 1];
-        let read_buf = &mut read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len() + 1];
+        if use_pec {
+            let mut pec = smbus_pec::Pec::default();
+            pec.write_u8(BQ_ADDR << 1);
+            pec.write(write);
 
-        // Reuse pec_buf for the block read now that we've computed PEC for the block write.
-        pec_buf[0] = BQ_ADDR << 1;
-        pec_buf[1] = write_buf[0];
-        pec_buf[2] = BQ_ADDR << 1 | 0x01;
+            // Compute PEC for the Write Block
+            write_buf[..write.len()].copy_from_slice(write);
+            // Infalliable because the underlying crate is guaranteed to return a u8
+            write_buf[write.len()] = pec.finish().try_into().unwrap();
+            // Include everything we want to write plus the PEC byte
+            write_buf_ref = &write_buf[..=write.len()];
+            read_buf_ref = &mut read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len() + 1];
+        } else {
+            write_buf_ref = write;
+            read_buf_ref = &mut read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()];
+        }
 
         // Loop until no bus errors or max bus retries are hit.
         loop {
             // Block write intended register.
-            let res = self.i2c.write(BQ_ADDR, write_buf).await;
+            let res = self.i2c.write(BQ_ADDR, write_buf_ref).await;
 
             if let Err(e) = res {
                 if retries == 0 {
@@ -325,9 +242,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
 
             // For read only commands.
             // Block read using I2C write_read, sending 0x44 as the command.
-            // Response looks like [ Length (1 byte) | Command (2 bytes) | Data (output.len() bytes)]
-
-            let res = self.i2c.write_read(BQ_ADDR, &[write_buf[0]], read_buf).await;
+            let res = self.i2c.write_read(BQ_ADDR, &[write[0]], read_buf_ref).await;
 
             if let Err(e) = res {
                 if retries == 0 {
@@ -338,24 +253,30 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                 continue;
             }
 
-            let recvd_pec = read_buf[1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()];
-            // Copy just read bytes to pec_buf, without the PEC byte
-            pec_buf[3..3 + 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()]
-                .copy_from_slice(&read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()]);
+            if use_pec {
+                let mut pec = smbus_pec::Pec::default();
+                pec.write_u8(BQ_ADDR << 1);
+                pec.write_u8(MAC_CMD);
+                pec.write_u8(BQ_ADDR << 1 | 0x01);
 
-            // Check PEC
-            if recvd_pec != smbus_pec::pec(&pec_buf[..3 + 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()]) {
-                if retries == 0 {
-                    return Err(BQ40Z50Error::Pec);
+                let recvd_pec = read_buf_ref[1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()];
+                pec.write(&read_buf_ref[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()]);
+
+                // Check PEC
+                if recvd_pec != pec.finish().try_into().unwrap() {
+                    if retries == 0 {
+                        return Err(BQ40Z50Error::Pec);
+                    }
+                    retries -= 1;
+                    // Delay 10ms since the fuel gauge might be "thinking" from a previous command
+                    self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                    continue;
                 }
-                retries -= 1;
-                // Delay 10ms since the fuel gauge might be "thinking" from a previous command
-                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
-                continue;
             }
 
             read.copy_from_slice(
-                &read_buf[(1 + MAC_CMD_ADDR_SIZE_BYTES as usize)..(1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len())],
+                &read_buf_ref
+                    [(1 + MAC_CMD_ADDR_SIZE_BYTES as usize)..(1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len())],
             );
 
             return Ok(());
@@ -559,243 +480,67 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         }
     }
 
-    pub(crate) async fn write_with_retries(&mut self, write: &[u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        self.write_with_retries_internal(write).await
-    }
-
-    pub(crate) async fn write_with_retries_pec(&mut self, write: &[u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        // Buffer to hold the entire message to compute PEC on
-        let mut pec_buf = [0u8; LARGEST_REG_SIZE_BYTES * 2];
-        pec_buf[0] = BQ_ADDR << 1;
-        pec_buf[1..=write.len()].copy_from_slice(write);
-
-        // Write one more byte (PEC)
+    pub(crate) async fn write_with_retries(
+        &mut self,
+        write: &[u8],
+        use_pec: bool,
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         let mut write_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES];
-        write_buf[..write.len()].copy_from_slice(write);
-        write_buf[write.len()] = smbus_pec::pec(&pec_buf[..=write.len()]);
+        let write_buf_ref: &[u8];
+        if use_pec {
+            let mut pec = smbus_pec::Pec::default();
+            // Device Addr + Write Bit (0)
+            pec.write_u8(BQ_ADDR << 1);
+            pec.write(write);
 
-        // Include everything we want to write plus the PEC byte
-        let write_buf = &write_buf[..=write.len()];
+            // Write one more byte (PEC)
+            write_buf[..write.len()].copy_from_slice(write);
+            write_buf[write.len()] = pec.finish().try_into().unwrap();
 
-        self.write_with_retries_internal(write_buf).await
+            // Include everything we want to write plus the PEC byte
+            write_buf_ref = &write_buf[..=write.len()];
+        } else {
+            write_buf_ref = write;
+        }
+        self.write_with_retries_internal(write_buf_ref).await
     }
 
     pub(crate) async fn read_with_retries(
         &mut self,
         write: &[u8],
-        read: &mut [u8],
+        mut read: &mut [u8],
+        use_pec: bool,
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         let mut retries = self.config.max_bus_retries;
-
-        loop {
-            let res = match with_timeout(self.config.timeout, self.i2c.write_read(BQ_ADDR, write, read)).await {
-                Err(_) => Err(BQ40Z50Error::Timeout),
-                Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
-                Ok(Ok(())) => return Ok(()),
-            };
-
-            if retries == 0 {
-                // Return error
-                return res;
-            }
-            retries -= 1;
-            // Delay 10ms since the fuel gauge might be "thinking" from a previous command
-            self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
-        }
-    }
-
-    pub(crate) async fn read_with_retries_pec(
-        &mut self,
-        write: &[u8],
-        read: &mut [u8],
-    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        let mut retries = self.config.max_bus_retries;
-
-        // Buffer to hold the entire message, including write and read, to compute PEC on
-        let mut pec_buf = [0u8; LARGEST_REG_SIZE_BYTES * 2];
-        pec_buf[0] = BQ_ADDR << 1;
-        pec_buf[1..=write.len()].copy_from_slice(write);
-        // Device Addr + Read Bit (1)
-        pec_buf[write.len() + 1] = BQ_ADDR << 1 | 0x01;
-
-        // Read one more byte (PEC)
+        // Read buffer with one extra space at the end, in case we use PEC
         let mut read_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES];
-        let read_buf = &mut read_buf[..=read.len()];
+        let mut pec = smbus_pec::Pec::default();
+
+        let read_len = read.len();
+
+        let read_buf_ref = if use_pec {
+            // Device Addr + Write Bit (0)
+            pec.write_u8(BQ_ADDR << 1);
+            pec.write(write);
+            // Device Addr + Read Bit (1)
+            pec.write_u8(BQ_ADDR << 1 | 0x01);
+
+            // Read one more byte (PEC)
+            &mut read_buf[..=read_len]
+        } else {
+            &mut read
+        };
 
         loop {
-            let res = match with_timeout(self.config.timeout, self.i2c.write_read(BQ_ADDR, write, read_buf)).await {
-                Err(_) => Err(BQ40Z50Error::Timeout),
-                Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
-                Ok(Ok(())) => {
-                    let recvd_pec = read_buf[read.len()];
-                    // Copy just read bytes to pec_buf, without the PEC byte
-                    pec_buf[2 + write.len()..2 + write.len() + read.len()].copy_from_slice(&read_buf[..read.len()]);
-
-                    if recvd_pec == smbus_pec::pec(&pec_buf[..2 + write.len() + read.len()]) {
-                        // If all is good, copy bytes we read into read.
-                        read.copy_from_slice(&read_buf[..read.len()]);
-                        return Ok(());
-                    }
-                    Err(BQ40Z50Error::Pec)
-                }
-            };
-
-            if retries == 0 {
-                // Return error
-                return res;
-            }
-            retries -= 1;
-            // Delay 10ms since the fuel gauge might be "thinking" from a previous command
-            self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
-        }
-    }
-
-    pub(crate) async fn mac_read_with_retries(
-        &mut self,
-        write: &[u8],
-        read: &mut [u8],
-    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        let mut retries = self.config.max_bus_retries;
-
-        // Loop until no bus errors or max bus retries are hit.
-        loop {
-            // Block write intended register.
-            let res = match with_timeout(self.config.timeout, self.i2c.write(BQ_ADDR, write)).await {
+            let res = match with_timeout(self.config.timeout, self.i2c.write_read(BQ_ADDR, write, read_buf_ref)).await {
                 Err(_) => Err(BQ40Z50Error::Timeout),
                 Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
                 Ok(Ok(())) => Ok(()),
             };
 
-            if res.is_err() {
+            if let Err(e) = res {
                 if retries == 0 {
-                    return res;
-                }
-                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
-                retries -= 1;
-                continue;
-            }
-
-            // For read only commands.
-            // Block read using I2C write_read, sending 0x44 as the command.
-            // Response looks like [ Length (1 byte) | Command (2 bytes) | Data (read.len() bytes)]
-            let mut output_buf = [0u8; 1 + LARGEST_CMD_SIZE_BYTES + MAC_CMD_ADDR_SIZE_BYTES as usize];
-
-            let res = match with_timeout(
-                self.config.timeout,
-                self.i2c.write_read(
-                    BQ_ADDR,
-                    &[write[0]],
-                    &mut output_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()],
-                ),
-            )
-            .await
-            {
-                Err(_) => Err(BQ40Z50Error::Timeout),
-                Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
-                Ok(Ok(())) => Ok(()),
-            };
-
-            if res.is_err() {
-                if retries == 0 {
-                    return res;
-                }
-                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
-                retries -= 1;
-                continue;
-            }
-
-            read.copy_from_slice(
-                &output_buf
-                    [(1 + MAC_CMD_ADDR_SIZE_BYTES as usize)..(1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len())],
-            );
-
-            return Ok(());
-        }
-    }
-
-    #[allow(clippy::range_plus_one)]
-    pub(crate) async fn mac_read_with_retries_pec(
-        &mut self,
-        write: &[u8],
-        read: &mut [u8],
-    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        let mut retries = self.config.max_bus_retries;
-
-        // Buffer to hold the entire message to compute PEC on
-        let mut pec_buf = [0u8; 2 + LARGEST_CMD_SIZE_BYTES + 2 + MAC_CMD_ADDR_SIZE_BYTES as usize];
-        pec_buf[0] = BQ_ADDR << 1;
-        pec_buf[1..write.len() + 1].copy_from_slice(write);
-
-        // Compute PEC for the Write Block
-        // Write one more byte (PEC)
-        // [ MAC_CMD (0x44) | CMD_SIZE | CMD_LSB | CMD_MSB | PEC ]
-        let mut write_buf = [0u8; 1 + 2 + MAC_CMD_ADDR_SIZE_BYTES as usize];
-        write_buf[..write.len()].copy_from_slice(write);
-        write_buf[write.len()] = smbus_pec::pec(&pec_buf[..write.len() + 1]);
-
-        // Include everything we want to write plus the PEC byte
-        let write_buf = &write_buf[..=write.len()];
-
-        // Read one more byte (PEC)
-        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES + 1];
-        let read_buf = &mut read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len() + 1];
-
-        // Reuse pec_buf for the block read now that we've computed PEC for the block write.
-        pec_buf[0] = BQ_ADDR << 1;
-        pec_buf[1] = write_buf[0];
-        pec_buf[2] = BQ_ADDR << 1 | 0x01;
-
-        // Loop until no bus errors or max bus retries are hit.
-        loop {
-            // Block write intended register.
-            let res = match with_timeout(self.config.timeout, self.i2c.write(BQ_ADDR, write_buf)).await {
-                Err(_) => Err(BQ40Z50Error::Timeout),
-                Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
-                Ok(Ok(())) => Ok(()),
-            };
-
-            if res.is_err() {
-                if retries == 0 {
-                    return res;
-                }
-                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
-                retries -= 1;
-                continue;
-            }
-
-            // For read only commands.
-            // Block read using I2C write_read, sending 0x44 as the command.
-            // Response looks like [ Length (1 byte) | Command (2 bytes) | Data (output.len() bytes)]
-
-            let res = match with_timeout(
-                self.config.timeout,
-                self.i2c.write_read(BQ_ADDR, &[write_buf[0]], read_buf),
-            )
-            .await
-            {
-                Err(_) => Err(BQ40Z50Error::Timeout),
-                Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
-                Ok(Ok(())) => Ok(()),
-            };
-
-            if res.is_err() {
-                if retries == 0 {
-                    return res;
-                }
-                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
-                retries -= 1;
-                continue;
-            }
-
-            let recvd_pec = read_buf[1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()];
-            // Copy just read bytes to pec_buf, without the PEC byte
-            pec_buf[3..3 + 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()]
-                .copy_from_slice(&read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()]);
-
-            // Check PEC
-            if recvd_pec != smbus_pec::pec(&pec_buf[..3 + 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()]) {
-                if retries == 0 {
-                    return Err(BQ40Z50Error::Pec);
+                    return Err(e);
                 }
                 retries -= 1;
                 // Delay 10ms since the fuel gauge might be "thinking" from a previous command
@@ -803,8 +548,126 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
                 continue;
             }
 
+            if use_pec {
+                let recvd_pec = read_buf_ref[read_len];
+                pec.write(&read_buf_ref[..read_len]);
+
+                // Check PEC
+                if recvd_pec != pec.finish().try_into().unwrap() {
+                    if retries == 0 {
+                        return Err(BQ40Z50Error::Pec);
+                    }
+                    retries -= 1;
+                    // Delay 10ms since the fuel gauge might be "thinking" from a previous command
+                    self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                    continue;
+                }
+                // If all is good, copy bytes we read into read.
+                read.copy_from_slice(&read_buf[..read_len]);
+            }
+
+            return Ok(());
+        }
+    }
+
+    pub(crate) async fn mac_read_with_retries(
+        &mut self,
+        write: &[u8],
+        read: &mut [u8],
+        use_pec: bool,
+    ) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        let mut retries = self.config.max_bus_retries;
+        // Read buffer with one extra space at the end, in case we use PEC
+        // Response looks like [ Length (1 byte) | Command (2 bytes) | Data (output.len() bytes)]
+        let mut read_buf = [0u8; 1 + MAC_CMD_ADDR_SIZE_BYTES as usize + LARGEST_CMD_SIZE_BYTES + 1];
+        // Write buffer with one extra space at the end, in case we use PEC
+        // [ MAC_CMD (0x44) | CMD_SIZE | CMD_LSB | CMD_MSB | PEC ]
+        let mut write_buf = [0u8; 1 + 2 + MAC_CMD_ADDR_SIZE_BYTES as usize];
+
+        let write_buf_ref: &[u8];
+        let read_buf_ref: &mut [u8];
+
+        if use_pec {
+            let mut pec = smbus_pec::Pec::default();
+            pec.write_u8(BQ_ADDR << 1);
+            pec.write(write);
+
+            // Compute PEC for the Write Block
+            write_buf[..write.len()].copy_from_slice(write);
+            // Infalliable because the underlying crate is guaranteed to return a u8
+            write_buf[write.len()] = pec.finish().try_into().unwrap();
+            // Include everything we want to write plus the PEC byte
+            write_buf_ref = &write_buf[..=write.len()];
+            read_buf_ref = &mut read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len() + 1];
+        } else {
+            write_buf_ref = write;
+            read_buf_ref = &mut read_buf[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()];
+        }
+
+        // Loop until no bus errors or max bus retries are hit.
+        loop {
+            // Block write intended register.
+            let res = match with_timeout(self.config.timeout, self.i2c.write(BQ_ADDR, write_buf_ref)).await {
+                Err(_) => Err(BQ40Z50Error::Timeout),
+                Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
+                Ok(Ok(())) => Ok(()),
+            };
+
+            if res.is_err() {
+                if retries == 0 {
+                    return res;
+                }
+                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                retries -= 1;
+                continue;
+            }
+
+            // For read only commands.
+            // Block read using I2C write_read, sending 0x44 as the command.
+            let res = match with_timeout(
+                self.config.timeout,
+                self.i2c.write_read(BQ_ADDR, &[write[0]], read_buf_ref),
+            )
+            .await
+            {
+                Err(_) => Err(BQ40Z50Error::Timeout),
+                Ok(Err(bus_err)) => Err(BQ40Z50Error::I2c(bus_err)),
+                Ok(Ok(())) => Ok(()),
+            };
+
+            if res.is_err() {
+                if retries == 0 {
+                    return res;
+                }
+                self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                retries -= 1;
+                continue;
+            }
+
+            if use_pec {
+                let mut pec = smbus_pec::Pec::default();
+                pec.write_u8(BQ_ADDR << 1);
+                pec.write_u8(MAC_CMD);
+                pec.write_u8(BQ_ADDR << 1 | 0x01);
+
+                let recvd_pec = read_buf_ref[1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()];
+                pec.write(&read_buf_ref[..1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len()]);
+
+                // Check PEC
+                if recvd_pec != pec.finish().try_into().unwrap() {
+                    if retries == 0 {
+                        return Err(BQ40Z50Error::Pec);
+                    }
+                    retries -= 1;
+                    // Delay 10ms since the fuel gauge might be "thinking" from a previous command
+                    self.delay.delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS).await;
+                    continue;
+                }
+            }
+
             read.copy_from_slice(
-                &read_buf[(1 + MAC_CMD_ADDR_SIZE_BYTES as usize)..(1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len())],
+                &read_buf_ref
+                    [(1 + MAC_CMD_ADDR_SIZE_BYTES as usize)..(1 + MAC_CMD_ADDR_SIZE_BYTES as usize + read.len())],
             );
 
             return Ok(());
@@ -1028,12 +891,8 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> device_driver::AsyncRegisterInterface for
         // Because the BQ40Z50's registers vary in size, we pass in a slice of
         // the appropriate size so we do not accidentally write to the register
         // at address + 1 when writing to a 1 byte register
-
-        if self.config.pec_write {
-            self.write_with_retries_pec(&buf[..=data.len()]).await
-        } else {
-            self.write_with_retries(&buf[..=data.len()]).await
-        }
+        self.write_with_retries(&buf[..=data.len()], self.config.pec_write)
+            .await
     }
 
     async fn read_register(
@@ -1042,11 +901,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> device_driver::AsyncRegisterInterface for
         _size_bits: u32,
         data: &mut [u8],
     ) -> Result<(), Self::Error> {
-        if self.config.pec_read {
-            self.read_with_retries_pec(&[address], data).await
-        } else {
-            self.read_with_retries(&[address], data).await
-        }
+        self.read_with_retries(&[address], data, self.config.pec_read).await
     }
 }
 
@@ -1079,18 +934,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> device_driver::AsyncCommandInterface for 
         if size_bits_in == 0 && size_bits_out == 0 {
             // Write only, writes don't have an output size nor an input size because
             // writes only consist of the register/command address.
-            if self.config.pec_write {
-                self.mac_write_with_retries_pec(&buf).await?;
-            } else {
-                self.mac_write_with_retries(&buf).await?;
-            }
+            self.mac_write_with_retries(&buf, self.config.pec_write).await?;
         } else if size_bits_in == 0 && size_bits_out > 0 {
             // For read only commands.
-            if self.config.pec_read {
-                self.mac_read_with_retries_pec(&buf, output).await?;
-            } else {
-                self.mac_read_with_retries(&buf, output).await?;
-            }
+            self.mac_read_with_retries(&buf, output, self.config.pec_read).await?;
         } else {
             // Read/write, to be handled in other functions as special cases.
             unreachable!();
@@ -1107,7 +954,8 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> device_driver::AsyncBufferInterface for D
     type AddressType = u8;
 
     async fn read(&mut self, address: Self::AddressType, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.read_with_retries(&[address], buf).await.map(|()| buf.len())
+        // Don't use PEC for these types of registers, because we don't know the size of the data.
+        self.read_with_retries(&[address], buf, false).await.map(|()| buf.len())
     }
 
     async fn write(&mut self, address: Self::AddressType, buf: &[u8]) -> Result<usize, Self::Error> {
@@ -1118,7 +966,9 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> device_driver::AsyncBufferInterface for D
         data[0] = address;
         data[1..=buf.len()].copy_from_slice(buf);
 
-        self.write_with_retries(&data).await.map(|()| buf.len())
+        self.write_with_retries(&data, self.config.pec_write)
+            .await
+            .map(|()| buf.len())
     }
 
     async fn flush(&mut self, _address: Self::AddressType) -> Result<(), Self::Error> {

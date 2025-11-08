@@ -61,12 +61,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R1<I2C, DELAY> {
         buf[1] = MAC_CMD_ADDR_SIZE_BYTES;
         buf[2] = SECURITY_KEYS_CMD[0];
         buf[3] = SECURITY_KEYS_CMD[1];
-
-        if self.device.interface.config.pec_read {
-            self.device.interface.mac_read_with_retries_pec(&buf, output_buf).await
-        } else {
-            self.device.interface.mac_read_with_retries(&buf, output_buf).await
-        }
+        self.device
+            .interface
+            .mac_read_with_retries(&buf, output_buf, self.device.interface.config.pec_read)
+            .await
     }
 
     /// Write MAC Register 0x0035 Security Keys.
@@ -88,11 +86,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R1<I2C, DELAY> {
         buf[3] = SECURITY_KEYS_CMD[1];
         buf[4..].copy_from_slice(security_keys);
 
-        if self.device.interface.config.pec_write {
-            self.device.interface.mac_write_with_retries_pec(&buf).await
-        } else {
-            self.device.interface.mac_write_with_retries(&buf).await
-        }
+        self.device
+            .interface
+            .mac_write_with_retries(&buf, self.device.interface.config.pec_write)
+            .await
     }
 
     /// Read MAC Register 0x0037 Authentication Key.
@@ -113,11 +110,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R1<I2C, DELAY> {
         buf[2] = AUTH_KEY_CMD[0];
         buf[3] = AUTH_KEY_CMD[1];
 
-        if self.device.interface.config.pec_read {
-            self.device.interface.mac_read_with_retries_pec(&buf, output_buf).await
-        } else {
-            self.device.interface.mac_read_with_retries(&buf, output_buf).await
-        }
+        self.device
+            .interface
+            .mac_read_with_retries(&buf, output_buf, self.device.interface.config.pec_read)
+            .await
     }
 
     /// Write MAC Register 0x0037 Authentication Key.
@@ -139,11 +135,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R1<I2C, DELAY> {
         buf[3] = AUTH_KEY_CMD[1];
         buf[4..].copy_from_slice(auth_key);
 
-        if self.device.interface.config.pec_write {
-            self.device.interface.mac_write_with_retries_pec(&buf).await
-        } else {
-            self.device.interface.mac_write_with_retries(&buf).await
-        }
+        self.device
+            .interface
+            .mac_write_with_retries(&buf, self.device.interface.config.pec_write)
+            .await
     }
 
     /// Read data from an arbitrary register from the device.
@@ -168,7 +163,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R1<I2C, DELAY> {
         reg_address: u8,
         data: &mut [u8],
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        self.device.interface.read_with_retries(&[reg_address], data).await
+        self.device
+            .interface
+            .read_with_retries(&[reg_address], data, false)
+            .await
     }
 
     /// Write data to an arbitrary register on the device.
@@ -199,7 +197,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R1<I2C, DELAY> {
         buf[0] = reg_address;
         buf[1..=data.len()].copy_from_slice(data);
 
-        self.device.interface.write_with_retries(&buf[..=data.len()]).await
+        self.device
+            .interface
+            .write_with_retries(&buf[..=data.len()], false)
+            .await
     }
 
     /// Seal the fuel gauge.
@@ -242,21 +243,19 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R1<I2C, DELAY> {
         buf[0] = MAC_CMD;
         buf[1] = MAC_CMD_ADDR_SIZE_BYTES;
         buf[2..4].copy_from_slice(&access_key_lower.to_le_bytes());
-        if self.device.interface.config.pec_write {
-            self.device.interface.mac_write_with_retries_pec(&buf).await?;
-        } else {
-            self.device.interface.mac_write_with_retries(&buf).await?;
-        }
+        self.device
+            .interface
+            .mac_write_with_retries(&buf, self.device.interface.config.pec_write)
+            .await?;
 
         // Write upper access key
         buf[0] = MAC_CMD;
         buf[1] = MAC_CMD_ADDR_SIZE_BYTES;
         buf[2..4].copy_from_slice(&access_key_upper.to_le_bytes());
-        if self.device.interface.config.pec_write {
-            self.device.interface.mac_write_with_retries_pec(&buf).await
-        } else {
-            self.device.interface.mac_write_with_retries(&buf).await
-        }
+        self.device
+            .interface
+            .mac_write_with_retries(&buf, self.device.interface.config.pec_write)
+            .await
     }
 
     /// Write to the `MfgInfo` register. Despite it not being a MAC cmd, it uses the `SMBus` block command.
@@ -274,17 +273,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R1<I2C, DELAY> {
         buf[1] = data.len() as u8;
         buf[2..data.len() + 2].copy_from_slice(data);
 
-        if self.device.interface.config.pec_write {
-            self.device
-                .interface
-                .mac_write_with_retries_pec(&buf[..data.len() + 2])
-                .await
-        } else {
-            self.device
-                .interface
-                .mac_write_with_retries(&buf[..data.len() + 2])
-                .await
-        }
+        self.device
+            .interface
+            .mac_write_with_retries(&buf[..data.len() + 2], self.device.interface.config.pec_write)
+            .await
     }
 
     /// Read from the `MfgInfo` register.
@@ -301,12 +293,15 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R1<I2C, DELAY> {
             let mut read_buf = [0u8; 32];
             self.device
                 .interface
-                .read_with_retries(&[MFG_INFO_CMD], &mut read_buf)
+                .read_with_retries(&[MFG_INFO_CMD], &mut read_buf, true)
                 .await?;
             data.copy_from_slice(&read_buf[..data.len()]);
             Ok(())
         } else {
-            self.device.interface.read_with_retries(&[MFG_INFO_CMD], data).await
+            self.device
+                .interface
+                .read_with_retries(&[MFG_INFO_CMD], data, false)
+                .await
         }
     }
 
@@ -357,17 +352,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R1<I2C, DELAY> {
         starting_address: u16,
         write: &[u8],
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        if self.device.interface.config.pec_read {
-            self.device
-                .interface
-                .mac_write_to_df_with_retries_pec(starting_address, write)
-                .await
-        } else {
-            self.device
-                .interface
-                .mac_write_to_df_with_retries(starting_address, write)
-                .await
-        }
+        self.device
+            .interface
+            .mac_write_to_df_with_retries(starting_address, write, self.device.interface.config.pec_write)
+            .await
     }
 }
 

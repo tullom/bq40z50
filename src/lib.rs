@@ -28,6 +28,9 @@ mod tests;
 mod versions;
 
 // Re-export types for public use
+#[cfg(any(feature = "r3", feature = "r4", feature = "r5"))]
+pub use common::ChargingVoltageOverride;
+pub use common::Config;
 pub use error::BQ40Z50Error;
 #[cfg(feature = "r1")]
 pub use versions::r1::Bq40z50R1;

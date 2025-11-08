@@ -946,7 +946,7 @@ MAC_LIFETIME_DATA_BLOCK_1:
 MAC_LIFETIME_DATA_BLOCK_2:
   type: command
   address: 0x446100
-  size_bits_out: 64
+  size_bits_out: 160
   fields_out:
     MIN_FCC_SOH_MAH:
       base: uint
@@ -959,19 +959,19 @@ MAC_LIFETIME_DATA_BLOCK_2:
     CB_TIME_CELL_1:
       base: uint
       start: 32
-      end: 40
+      end: 64
     CB_TIME_CELL_2:
       base: uint
-      start: 40
-      end: 48
+      start: 64
+      end: 96
     CB_TIME_CELL_3:
       base: uint
-      start: 48
-      end: 56
+      start: 96
+      end: 128
     CB_TIME_CELL_4:
       base: uint
-      start: 56
-      end: 64
+      start: 128
+      end: 160
 
 MAC_LIFETIME_DATA_BLOCK_3:
   type: command
@@ -3952,7 +3952,7 @@ LIFETIME_DATA_BLOCK_2:
   type: register
   address: 0x61
   access: RO
-  size_bits: 64
+  size_bits: 160
   fields:
     MIN_FCC_SOH_MAH:
       base: uint
@@ -3968,22 +3968,22 @@ LIFETIME_DATA_BLOCK_2:
       base: uint
       access: RO
       start: 32
-      end: 40
+      end: 64
     CB_TIME_CELL_2:
       base: uint
       access: RO
-      start: 40
-      end: 48
+      start: 64
+      end: 96
     CB_TIME_CELL_3:
       base: uint
       access: RO
-      start: 48
-      end: 56
+      start: 96
+      end: 128
     CB_TIME_CELL_4:
       base: uint
       access: RO
-      start: 56
-      end: 64
+      start: 128
+      end: 160
 
 LIFETIME_DATA_BLOCK_3:
   type: register

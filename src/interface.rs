@@ -192,6 +192,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         }
     }
 
+    #[allow(clippy::range_plus_one)]
     pub(crate) async fn mac_read_with_retries(
         &mut self,
         write: &[u8],
@@ -570,6 +571,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         }
     }
 
+    #[allow(clippy::range_plus_one)]
     pub(crate) async fn mac_read_with_retries(
         &mut self,
         write: &[u8],

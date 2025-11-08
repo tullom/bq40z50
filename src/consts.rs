@@ -1,4 +1,4 @@
-pub(crate) const LARGEST_REG_SIZE_BYTES: usize = 5;
+pub(crate) const LARGEST_REG_SIZE_BYTES: usize = 32;
 pub(crate) const LARGEST_CMD_SIZE_BYTES: usize = 32;
 pub(crate) const LARGEST_BUF_SIZE_BYTES: usize = 33;
 pub(crate) const LARGEST_DF_BLOCK_SIZE_BYTES: usize = 32;

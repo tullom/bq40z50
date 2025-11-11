@@ -40,3 +40,4 @@ pub use versions::r3::Bq40z50R3;
 pub use versions::r4::Bq40z50R4;
 #[cfg(feature = "r5")]
 pub use versions::r5::Bq40z50R5;
+pub use versions::*;

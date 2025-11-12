@@ -111,7 +111,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         write: &[u8],
         use_pec: bool,
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        let mut write_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES];
+        let mut write_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES + 6];
         let write_buf_ref: &[u8];
         if use_pec {
             let mut pec = smbus_pec::Pec::default();
@@ -138,8 +138,8 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         use_pec: bool,
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         let mut retries = self.config.max_bus_retries;
-        // Read buffer with one extra space at the end, in case we use PEC
-        let mut read_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES];
+        // Read buffer with one extra space at the end, in case we use PEC, and one extra space in the front for `mfg_info`
+        let mut read_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES + 1];
         let mut pec = smbus_pec::Pec::default();
 
         let read_len = read.len();
@@ -486,7 +486,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         write: &[u8],
         use_pec: bool,
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        let mut write_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES];
+        let mut write_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES + 6];
         let write_buf_ref: &[u8];
         if use_pec {
             let mut pec = smbus_pec::Pec::default();
@@ -513,8 +513,8 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         use_pec: bool,
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         let mut retries = self.config.max_bus_retries;
-        // Read buffer with one extra space at the end, in case we use PEC
-        let mut read_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES];
+        // Read buffer with one extra space at the end, in case we use PEC, and one extra space in the front for `mfg_info`
+        let mut read_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES + 1];
         let mut pec = smbus_pec::Pec::default();
 
         let read_len = read.len();

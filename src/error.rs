@@ -6,6 +6,7 @@ pub enum BQ40Z50Error<I2cError> {
     BatteryStatus(embedded_batteries_async::smart_battery::ErrorCode),
     Timeout,
     Pec,
+    DataTooLarge,
 }
 
 #[cfg(feature = "embassy-timeout")]
@@ -20,7 +21,7 @@ impl<E: embedded_hal_async::i2c::Error> embedded_batteries_async::smart_battery:
         match self {
             Self::I2c(_) => embedded_batteries_async::smart_battery::ErrorKind::CommError,
             Self::BatteryStatus(e) => embedded_batteries_async::smart_battery::ErrorKind::BatteryStatus(*e),
-            Self::Timeout | Self::Pec => embedded_batteries_async::smart_battery::ErrorKind::Other,
+            Self::Timeout | Self::Pec | Self::DataTooLarge => embedded_batteries_async::smart_battery::ErrorKind::Other,
         }
     }
 }

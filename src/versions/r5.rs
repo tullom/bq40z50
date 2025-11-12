@@ -276,6 +276,9 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R5<I2C, DELAY> {
         data: &[u8],
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         const MFG_INFO_C_CMD: [u8; MAC_CMD_ADDR_SIZE_BYTES as usize] = 0x007Bu16.to_le_bytes();
+        if data.len() > LARGEST_CMD_SIZE_BYTES {
+            return Err(BQ40Z50Error::DataTooLarge);
+        }
         let mut buf = [0u8; 4 + LARGEST_CMD_SIZE_BYTES];
 
         self.send_access_key(access_key_lower, access_key_upper).await?;
@@ -301,6 +304,9 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R5<I2C, DELAY> {
     /// Will return `Err` if an I2C bus error occurs.
     pub async fn read_mfg_info_c(&mut self, data: &mut [u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
         const MFG_INFO_C_CMD: [u8; MAC_CMD_ADDR_SIZE_BYTES as usize] = 0x007Bu16.to_le_bytes();
+        if data.len() > LARGEST_CMD_SIZE_BYTES {
+            return Err(BQ40Z50Error::DataTooLarge);
+        }
 
         let mut buf = [0u8; 4];
         buf[0] = MAC_CMD;
@@ -337,7 +343,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R5<I2C, DELAY> {
     /// Will return `Err` if an I2C bus error occurs.
     #[allow(clippy::cast_possible_truncation)]
     pub async fn write_mfg_info(&mut self, data: &[u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
-        let mut buf = [0u8; 2 + LARGEST_BUF_SIZE_BYTES];
+        if data.len() > LARGEST_REG_SIZE_BYTES {
+            return Err(BQ40Z50Error::DataTooLarge);
+        }
+        let mut buf = [0u8; 2 + LARGEST_REG_SIZE_BYTES];
         buf[0] = MFG_INFO_CMD;
         buf[1] = data.len() as u8;
         buf[2..data.len() + 2].copy_from_slice(data);
@@ -350,26 +359,34 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R5<I2C, DELAY> {
 
     /// Read from the `MfgInfo` register.
     ///
-    /// `data` can be at most 32 bytes large.
+    /// NOTE: `mfg_info` is unique in that it has a leading size byte,
+    /// meaning you need to read 33 bytes to read 32 bytes of data.
+    /// This fn will return the data including the size byte as the zeroth byte.
+    ///
+    /// `data` can be at most 33 bytes large, which includes the size byte in the zeroth position.
     /// # Errors
     ///
     /// Will return `Err` if an I2C bus error occurs.
     pub async fn read_mfg_info(&mut self, data: &mut [u8]) -> Result<(), BQ40Z50Error<I2C::Error>> {
+        if data.len() > LARGEST_REG_SIZE_BYTES + 1 {
+            return Err(BQ40Z50Error::DataTooLarge);
+        }
         if self.device.interface.config.pec_read {
             // If reading with PEC, the entire payload needs to be read to verify the PEC byte
             // This reduces performance because without PEC, we could read parts of the register and NACK early if we
             // know the size of the data we want to read.
-            let mut read_buf = [0u8; 32];
+            // [ size | data | data | ... | data | PEC (optional) ]
+            let mut read_buf = [0u8; LARGEST_REG_SIZE_BYTES + 1];
             self.device
                 .interface
-                .read_with_retries(&[MFG_INFO_CMD], &mut read_buf, self.device.interface.config.pec_read)
+                .read_with_retries(&[MFG_INFO_CMD], &mut read_buf, true)
                 .await?;
             data.copy_from_slice(&read_buf[..data.len()]);
             Ok(())
         } else {
             self.device
                 .interface
-                .read_with_retries(&[MFG_INFO_CMD], data, self.device.interface.config.pec_read)
+                .read_with_retries(&[MFG_INFO_CMD], data, false)
                 .await
         }
     }

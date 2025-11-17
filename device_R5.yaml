@@ -626,7 +626,7 @@ MAC_OPERATION_STATUS:
 MAC_CHARGING_STATUS:
   type: command
   address: 0x445500
-  size_bits_out: 32
+  size_bits_out: 40
   fields_out:
     UT:
       base: bool
@@ -664,21 +664,91 @@ MAC_CHARGING_STATUS:
     CHG_IN:
       base: bool
       start: 12
-    MCHG:
+    CHG_SU:
       base: bool
       start: 13
-    VCT:
+    MCHG:
       base: bool
       start: 14
-    CCR:
+    VCT:
       base: bool
       start: 15
-    CVR:
+    CCR:
       base: bool
       start: 16
-    CCC:
+    CVR:
       base: bool
       start: 17
+    CCC:
+      base: bool
+      start: 18
+    NCT:
+      base: bool
+      start: 19
+    ERM:
+      base: bool
+      start: 20
+    ERETM:
+      base: bool
+      start: 21
+    DEG:
+      base: uint
+      start: 22
+      end: 24
+      conversion:
+        name: "DegradationMode"
+        NoDegradation: 0
+        CycleCountBased: 1
+        SohBased: 2
+        RuntimeBased: 3
+    V_PV:
+      base: bool
+      start: 24
+    V_LV:
+      base: bool
+      start: 25
+    V_MV:
+      base: bool
+      start: 26
+    V_HV:
+      base: bool
+      start: 27
+    V_IN:
+      base: bool
+      start: 28
+    V_SU:
+      base: bool
+      start: 29
+    V_MCHG:
+      base: bool
+      start: 30
+    V_VCT:
+      base: bool
+      start: 31
+    SOC_PV:
+      base: bool
+      start: 32
+    SOC_LV:
+      base: bool
+      start: 33
+    SOC_MV:
+      base: bool
+      start: 34
+    SOC_HV:
+      base: bool
+      start: 35
+    SOC_IN:
+      base: bool
+      start: 36
+    SOC_SU:
+      base: bool
+      start: 37
+    SOC_MCHG:
+      base: bool
+      start: 38
+    SOC_VCT:
+      base: bool
+      start: 39
 
 MAC_GAUGING_STATUS:
   type: command
@@ -2102,7 +2172,7 @@ MAC_GAUGE_STATUS_2:
 MAC_GAUGE_STATUS_3:
   type: command
   address: 0x447500
-  size_bits_out: 192
+  size_bits_out: 256 # Should be 192 according to the datasheet but the FG does not return PEC until 32 bytes have been read
   fields_out:
     QMAX_0:
       base: uint
@@ -3508,7 +3578,7 @@ OPERATION_STATUS:
 CHARGING_STATUS:
   type: register
   address: 0x55
-  size_bits: 32
+  size_bits: 40
   access: RO
   fields:
     UT:
@@ -3559,26 +3629,112 @@ CHARGING_STATUS:
       base: bool
       access: RO
       start: 12
-    MCHG:
+    CHG_SU:
       base: bool
       access: RO
       start: 13
-    VCT:
+    MCHG:
       base: bool
       access: RO
       start: 14
-    CCR:
+    VCT:
       base: bool
       access: RO
       start: 15
-    CVR:
+    CCR:
       base: bool
       access: RO
       start: 16
-    CCC:
+    CVR:
       base: bool
       access: RO
       start: 17
+    CCC:
+      base: bool
+      access: RO
+      start: 18
+    NCT:
+      base: bool
+      access: RO
+      start: 19
+    ERM:
+      base: bool
+      access: RO
+      start: 20
+    ERETM:
+      base: bool
+      access: RO
+      start: 21
+    DEG:
+      base: uint
+      access: RO
+      start: 22
+      end: 24
+      conversion: "DegradationMode"
+    V_PV:
+      base: bool
+      access: RO
+      start: 24
+    V_LV:
+      base: bool
+      access: RO
+      start: 25
+    V_MV:
+      base: bool
+      access: RO
+      start: 26
+    V_HV:
+      base: bool
+      access: RO
+      start: 27
+    V_IN:
+      base: bool
+      access: RO
+      start: 28
+    V_SU:
+      base: bool
+      access: RO
+      start: 29
+    V_MCHG:
+      base: bool
+      access: RO
+      start: 30
+    V_VCT:
+      base: bool
+      access: RO
+      start: 31
+    SOC_PV:
+      base: bool
+      access: RO
+      start: 32
+    SOC_LV:
+      base: bool
+      access: RO
+      start: 33
+    SOC_MV:
+      base: bool
+      access: RO
+      start: 34
+    SOC_HV:
+      base: bool
+      access: RO
+      start: 35
+    SOC_IN:
+      base: bool
+      access: RO
+      start: 36
+    SOC_SU:
+      base: bool
+      access: RO
+      start: 37
+    SOC_MCHG:
+      base: bool
+      access: RO
+      start: 38
+    SOC_VCT:
+      base: bool
+      access: RO
+      start: 39
 
 GAUGING_STATUS:
   type: register

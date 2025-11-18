@@ -664,21 +664,33 @@ MAC_CHARGING_STATUS:
     CHG_IN:
       base: bool
       start: 12
-    MCHG:
+    CHG_SU:
       base: bool
       start: 13
-    VCT:
+    MCHG:
       base: bool
       start: 14
-    CCR:
+    VCT:
       base: bool
       start: 15
-    CVR:
+    CCR:
       base: bool
       start: 16
-    CCC:
+    CVR:
       base: bool
       start: 17
+    CCC:
+      base: bool
+      start: 18
+    NCT:
+      base: bool
+      start: 19
+    ERM:
+      base: bool
+      start: 20
+    ERETM:
+      base: bool
+      start: 21
 
 MAC_GAUGING_STATUS:
   type: command
@@ -3121,26 +3133,42 @@ CHARGING_STATUS:
       base: bool
       access: RO
       start: 12
-    MCHG:
+    CHG_SU:
       base: bool
       access: RO
       start: 13
-    VCT:
+    MCHG:
       base: bool
       access: RO
       start: 14
-    CCR:
+    VCT:
       base: bool
       access: RO
       start: 15
-    CVR:
+    CCR:
       base: bool
       access: RO
       start: 16
-    CCC:
+    CVR:
       base: bool
       access: RO
       start: 17
+    CCC:
+      base: bool
+      access: RO
+      start: 18
+    NCT:
+      base: bool
+      access: RO
+      start: 19
+    ERM:
+      base: bool
+      access: RO
+      start: 20
+    ERETM:
+      base: bool
+      access: RO
+      start: 21
 
 GAUGING_STATUS:
   type: register

@@ -1,6 +1,6 @@
 [package]
 name = "bq40z50-rx"
-version = "0.7.2"
+version = "0.8.0"
 repository = "https://github.com/OpenDevicePartnership/bq40z50"
 license = "MIT"
 authors = ["Matteo Tullo <matteotullo@microsoft.com>"]
@@ -30,7 +30,7 @@ defmt = { version = "0.3", optional = true }
 
 embedded-hal = "1.0.0"
 embedded-hal-async = "1.0.0"
-embedded-batteries-async = "0.2.0"
+embedded-batteries-async = "0.3.0"
 embassy-time = { version = "0.5.0", optional = true }
 smbus-pec = { version = "1.0.1" }
 

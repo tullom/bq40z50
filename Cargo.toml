@@ -23,9 +23,7 @@ edition = "2024"
 features = ["r5"]
 
 [dependencies]
-device-driver = { version = "1.0.3", default-features = false, features = [
-	"yaml",
-] }
+device-driver = { version = "1.0.3", default-features = false }
 defmt = { version = "0.3", optional = true }
 
 embedded-hal = "1.0.0"

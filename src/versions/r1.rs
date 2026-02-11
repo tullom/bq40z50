@@ -10,11 +10,7 @@ use crate::consts::{
 };
 use crate::error::BQ40Z50Error;
 use crate::interface::DeviceInterface;
-
-device_driver::create_device!(
-    device_name: Device,
-    manifest: "device_R1.yaml"
-);
+pub use crate::versions::gen_r1::*;
 
 pub struct Bq40z50R1<I2C: I2cTrait, DELAY: DelayTrait> {
     pub device: Device<DeviceInterface<I2C, DELAY>>,

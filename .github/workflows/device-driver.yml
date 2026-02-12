@@ -28,8 +28,6 @@ jobs:
         uses: baptiste0928/cargo-install@v3
         with:
           crate: device-driver-cli
-      - name: List dir
-        run: ls -R
       - name: Generate files
         run: device-driver-cli --manifest device_${{ matrix.chip-rev }}.yaml --device-name Device -o ci_gen_${{matrix.chip-rev}}.rs
       - name: Check that the files are the exact same

@@ -1,7 +1,3 @@
-#![allow(clippy::all)]
-#![allow(clippy::pedantic)]
-#![allow(unsafe_code)]
-use embedded_batteries_async::smart_battery::ErrorCode;
 /// Root block of the Device driver
 
 #[derive(Debug)]
@@ -23412,7 +23408,7 @@ pub mod field_sets {
         ///Read the `ec` field of the register.
         ///
 
-        pub fn ec(&self) -> super::ErrorCode {
+        pub fn ec(&self) -> ::embedded_batteries_async::smart_battery::ErrorCode {
             let raw = unsafe { ::device_driver::ops::load_lsb0::<u8, ::device_driver::ops::LE>(&self.bits, 0, 3) };
 
             raw.into()

@@ -15,7 +15,7 @@ include = [
 	"/Cargo.toml",
 	"/README.md",
 	"/LICENSE",
-	"/device_R*.yaml",
+	"/device_r*.yaml",
 ]
 edition = "2024"
 

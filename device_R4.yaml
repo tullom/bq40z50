@@ -2716,7 +2716,7 @@ BATTERY_STATUS:
       access: RO
       start: 0
       end: 3
-      conversion: "ErrorCode"
+      conversion: "::embedded_batteries_async::smart_battery::ErrorCode"
     FD:
       base: bool
       access: RO

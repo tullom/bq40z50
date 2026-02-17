@@ -28,9 +28,21 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R4<I2C, DELAY> {
 
     pub fn new_with_config(i2c: I2C, delay: DELAY, config: Config) -> Self {
         Bq40z50R4 {
-            device: Device::new(DeviceInterface { i2c, delay, config }),
+            device: Device::new(DeviceInterface::new_with_config(i2c, delay, config)),
             capacity_mode_state: Cell::new(CapacityModeState::Milliamps),
         }
+    }
+
+    /// Change interface config.
+    ///
+    /// Concurrency is guaranteed by the mutable borrow, ensuring the config cannot change
+    /// while a register transaction is in flight.
+    pub fn update_config(&mut self, config: Config) {
+        self.device.interface.config = config;
+    }
+
+    pub fn config(&self) -> Config {
+        self.device.interface.config
     }
 
     fn set_capacity_mode_state(&self, battery_mode_fields: BatteryModeFields) {

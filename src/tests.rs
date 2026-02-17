@@ -22,6 +22,47 @@ macro_rules! bq40z50_tests {
             }
 
             #[tokio::test]
+            async fn update_config() {
+                let expectations = vec![
+                    Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x02, 0x00, 0x46]),
+                    Transaction::write_read(
+                        BQ_ADDR,
+                        vec![0x44],
+                        vec![
+                            0x0A, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0,
+                        ],
+                    ),
+                    Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x02, 0x00]),
+                    Transaction::write_read(
+                        BQ_ADDR,
+                        vec![0x44],
+                        vec![
+                            0x0A, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        ],
+                    ),
+                ];
+                let i2c = Mock::new(&expectations);
+                let mut bq = Bq40z50::new_with_config(
+                    i2c,
+                    NoopDelay::new(),
+                    Config {
+                        pec_read: true,
+                        ..Default::default()
+                    },
+                );
+
+                bq.device.mac_firmware_version().dispatch_async().await.unwrap();
+
+                // Change the device config to not use PEC.
+                let mut config = bq.config();
+                config.pec_read = false;
+                bq.update_config(config);
+                bq.device.mac_firmware_version().dispatch_async().await.unwrap();
+
+                bq.device.interface.i2c.done();
+            }
+
+            #[tokio::test]
             async fn read_chip_id() {
                 let expectations = vec![Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x21, 0x00])];
                 let i2c = Mock::new(&expectations);
@@ -36,14 +77,14 @@ macro_rules! bq40z50_tests {
             async fn read_chip_id_pec() {
                 let expectations = vec![Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x21, 0x00, 0xD7])];
                 let i2c = Mock::new(&expectations);
-                let mut bq = Device::new(DeviceInterface {
+                let mut bq = Device::new(DeviceInterface::new_with_config(
                     i2c,
-                    delay: NoopDelay::new(),
-                    config: Config {
+                    NoopDelay::new(),
+                    Config {
                         pec_write: true,
                         ..Default::default()
                     },
-                });
+                ));
 
                 bq.mac_gauging().dispatch_async().await.unwrap();
 
@@ -95,14 +136,14 @@ macro_rules! bq40z50_tests {
                     ),
                 ];
                 let i2c = Mock::new(&expectations);
-                let mut bq = Device::new(DeviceInterface {
+                let mut bq = Device::new(DeviceInterface::new_with_config(
                     i2c,
-                    delay: NoopDelay::new(),
-                    config: Config {
+                    NoopDelay::new(),
+                    Config {
                         pec_read: true,
                         ..Default::default()
                     },
-                });
+                ));
 
                 bq.mac_firmware_version().dispatch_async().await.unwrap();
                 bq.interface.i2c.done();

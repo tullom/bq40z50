@@ -21,12 +21,18 @@ pub struct DeviceInterface<I2C: I2cTrait, DELAY: DelayTrait> {
 }
 
 impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
-    pub fn new(i2c: I2C, delay: DELAY) -> Self {
+    #[must_use]
+    pub const fn new(i2c: I2C, delay: DELAY) -> Self {
         DeviceInterface {
             i2c,
             delay,
-            config: Config::default(),
+            config: Config::new(),
         }
+    }
+
+    #[must_use]
+    pub const fn new_with_config(i2c: I2C, delay: DELAY, config: Config) -> Self {
+        DeviceInterface { i2c, delay, config }
     }
 }
 

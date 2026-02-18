@@ -1,9 +1,8 @@
 [package]
 name = "bq40z50-rx"
-version = "0.8.0"
+version = "0.8.1"
 repository = "https://github.com/OpenDevicePartnership/bq40z50"
 license = "MIT"
-authors = ["Matteo Tullo <matteotullo@microsoft.com>"]
 rust-version = "1.85"
 description = "Platform-agnostic Rust driver for the Texas Instruments BQ40Z50 battery fuel (gas) gauge."
 readme = "README.md"

@@ -13,8 +13,9 @@ pub struct Config {
     pub timeout: embassy_time::Duration,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             max_bus_retries: crate::consts::DEFAULT_BUS_RETRIES,
             pec_read: false,
@@ -22,6 +23,12 @@ impl Default for Config {
             #[cfg(feature = "embassy-timeout")]
             timeout: crate::consts::DEFAULT_TIMEOUT,
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

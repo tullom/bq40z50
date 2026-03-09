@@ -1,0 +1,131 @@
+name: Queue and Monitor ADO Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      repoOwner:
+        description: "Repository owner/organization"
+        required: true
+        default: ""
+      branchName:
+        description: "Branch name to build (e.g., main, master, feature/foo)"
+        required: true
+        default: "master"
+      source_branch:
+        description: "Branch ref to build in ADO (example: refs/heads/master)"
+        required: false
+        default: refs/heads/master
+
+jobs:
+  queue-ado-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Queue ADO build and wait for result
+        shell: pwsh
+        env:
+          AZDO_PAT: ${{ secrets.AZDO_PAT }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          BRANCH_NAME: ${{ github.head_ref }}
+          ADO_ORG: WSSI
+          ADO_PROJECT: PlatformFirmware
+          ADO_DEFINITION_ID: "937"
+          ADO_API_VERSION: "7.1"
+          # For push/PR, use GitHub ref. For manual dispatch, allow override.
+          ADO_SOURCE_BRANCH_INPUT: ${{ github.event.inputs.source_branch }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $organization = $env:ADO_ORG
+          $project = $env:ADO_PROJECT
+          $apiVersion = $env:ADO_API_VERSION
+          $definitionId = [int]$env:ADO_DEFINITION_ID
+
+          # Get repo owner and branch from inputs
+          $repoOwner = $env:REPO_OWNER
+          $branchName = $env:BRANCH_NAME
+          
+          if (-not [string]::IsNullOrWhiteSpace($repoOwner)) {
+            Write-Host "Repository Owner: $repoOwner"
+          }
+          if (-not [string]::IsNullOrWhiteSpace($branchName)) {
+            Write-Host "Branch Name: $branchName"
+          }
+
+          # Determine source branch
+          $sourceBranch = "refs/heads/master"
+
+          $bodyObject = @{
+            definition   = @{ id = $definitionId }
+            sourceBranch = $sourceBranch
+          }
+
+          # Build template parameters from inputs
+          $parameters = @{}
+          if (-not [string]::IsNullOrWhiteSpace($repoOwner)) {
+            $parameters["repoOwner"] = $repoOwner
+          }
+          if (-not [string]::IsNullOrWhiteSpace($branchName)) {
+            $parameters["branchName"] = $branchName
+          }
+
+
+          $bodyObject.templateParameters = $parameters
+          
+
+          $bodyJson = $bodyObject | ConvertTo-Json -Depth 10
+
+          $basicAuth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$($env:AZDO_PAT)"))
+          $headers = @{
+            Authorization  = "Basic $basicAuth"
+            "Content-Type" = "application/json"
+            Accept         = "application/json"
+          }
+
+          $queueUri = "https://dev.azure.com/$organization/$project/_apis/build/builds?api-version=$apiVersion"
+
+          Write-Host "POST $queueUri"
+          Write-Host "Request body:"
+          Write-Host $bodyJson
+
+          try {
+            $response = Invoke-RestMethod -Method Post -Uri $queueUri -Headers $headers -Body $bodyJson
+            Write-Host "Build queued successfully."
+            Write-Host "Build ID: $($response.id)"
+            Write-Host "Build Number: $($response.buildNumber)"
+            Write-Host "Status: $($response.status)"
+            if ($response._links.web.href) {
+              Write-Host "Web: $($response._links.web.href)"
+            }
+          }
+          catch {
+            Write-Error "Failed to queue build."
+            if ($_.Exception.Response -and $_.Exception.Response.GetResponseStream()) {
+              $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+              $errBody = $reader.ReadToEnd()
+              Write-Error "HTTP response body:"
+              Write-Error $errBody
+            }
+            throw
+          }
+
+          $statusUri = "https://dev.azure.com/$organization/$project/_apis/build/builds/$($response.id)?api-version=$apiVersion"
+
+          do {
+            $b = Invoke-RestMethod -Method Get -Uri $statusUri -Headers @{ Authorization = "Basic $basicAuth"; Accept = "application/json" }
+            Write-Host ("[{0}] Build {1} status={2} result={3}" -f (Get-Date), $b.id, $b.status, $b.result)
+            if ($b.status -ne "completed") { Start-Sleep -Seconds 10 }
+          } while ($b.status -ne "completed")
+
+          if ($b.result -ne "succeeded") {
+            throw "Build completed with result: $($b.result)"
+          }
+
+          Write-Host "Build succeeded."

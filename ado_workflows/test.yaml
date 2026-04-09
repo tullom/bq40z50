@@ -1,0 +1,15 @@
+trigger:
+- main
+
+pr:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+- script: |
+    rustup toolchain install stable
+    cargo test --verbose
+  displayName: 'Test Rust project'
+  

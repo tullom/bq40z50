@@ -54,6 +54,7 @@ style = "deny"
 pedantic = "deny"
 
 [features]
+default = ["r5"]
 embassy-timeout = ["dep:embassy-time"]
 defmt-03 = [
 	"dep:defmt",

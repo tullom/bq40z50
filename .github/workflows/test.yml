@@ -1,0 +1,32 @@
+permissions:
+  contents: read
+on:
+  push:
+    branches: [main]
+  pull_request:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+name: test
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: stable / test / ${{ matrix.chip-rev }}
+    strategy:
+      fail-fast: false
+      matrix:
+        chip-rev: [r1, r3, r4, r5]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: cargo test ${{ matrix.chip-rev }}
+        run: cargo test --locked --features ${{ matrix.chip-rev }}
+      - name: cargo test embassy-timeout ${{ matrix.chip-rev }}
+        run: cargo test --locked --features embassy-timeout,${{ matrix.chip-rev }}
+      - name: cargo test pec-lookup-table ${{ matrix.chip-rev }}
+        run: cargo test --locked --features pec-lookup-table,${{ matrix.chip-rev }}
+      - name: cargo test embassy-timeout pec-lookup-table ${{ matrix.chip-rev }}
+        run: cargo test --locked --features embassy-timeout,pec-lookup-table,${{ matrix.chip-rev }}

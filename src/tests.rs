@@ -9,7 +9,7 @@ macro_rules! bq40z50_tests {
 
             use super::*;
             use crate::common::{CapacityModeState, Config};
-            use crate::consts::BQ_ADDR;
+            use crate::consts::{BQ_ADDR, DEFAULT_ERROR_BACKOFF_DELAY_MS};
 
             // Needed to compile in the pender symbol for embassy-time.
             // This is only enabled during tests and when actually using the driver,
@@ -162,6 +162,18 @@ macro_rules! bq40z50_tests {
                     .await
                     .unwrap();
                 bq.interface.i2c.done();
+            }
+
+            #[tokio::test]
+            async fn flush_buffer_is_noop() {
+                let mut interface = DeviceInterface::new(Mock::new(&[]), CheckedDelay::new(&[]));
+
+                device_driver::AsyncBufferInterface::flush(&mut interface, 0x20)
+                    .await
+                    .unwrap();
+
+                interface.i2c.done();
+                interface.delay.done();
             }
 
             #[tokio::test]

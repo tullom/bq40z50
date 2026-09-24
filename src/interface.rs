@@ -1,3 +1,4 @@
+use core::future::{Future, ready};
 use core::hash::Hasher;
 
 #[cfg(feature = "embassy-timeout")]
@@ -118,8 +119,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         use_pec: bool,
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         let mut write_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES + 6];
-        let write_buf_ref: &[u8];
-        if use_pec {
+        let write_buf_ref = if use_pec {
             let mut pec = smbus_pec::Pec::default();
             // Device Addr + Write Bit (0)
             pec.write_u8(BQ_ADDR << 1);
@@ -130,10 +130,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             write_buf[write.len()] = pec.finish().try_into().unwrap();
 
             // Include everything we want to write plus the PEC byte
-            write_buf_ref = &write_buf[..=write.len()];
+            &write_buf[..=write.len()]
         } else {
-            write_buf_ref = write;
-        }
+            write
+        };
         self.write_with_retries_internal(write_buf_ref).await
     }
 
@@ -493,8 +493,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
         use_pec: bool,
     ) -> Result<(), BQ40Z50Error<I2C::Error>> {
         let mut write_buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES + 6];
-        let write_buf_ref: &[u8];
-        if use_pec {
+        let write_buf_ref = if use_pec {
             let mut pec = smbus_pec::Pec::default();
             // Device Addr + Write Bit (0)
             pec.write_u8(BQ_ADDR << 1);
@@ -505,10 +504,10 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> DeviceInterface<I2C, DELAY> {
             write_buf[write.len()] = pec.finish().try_into().unwrap();
 
             // Include everything we want to write plus the PEC byte
-            write_buf_ref = &write_buf[..=write.len()];
+            &write_buf[..=write.len()]
         } else {
-            write_buf_ref = write;
-        }
+            write
+        };
         self.write_with_retries_internal(write_buf_ref).await
     }
 
@@ -979,7 +978,7 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> device_driver::AsyncBufferInterface for D
             .map(|()| buf.len())
     }
 
-    async fn flush(&mut self, _address: Self::AddressType) -> Result<(), Self::Error> {
-        Ok(())
+    fn flush(&mut self, _address: Self::AddressType) -> impl Future<Output = Result<(), Self::Error>> {
+        ready(Ok(()))
     }
 }

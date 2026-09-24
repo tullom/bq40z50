@@ -1,5 +1,6 @@
 [![no-std](https://github.com/OpenDevicePartnership/bq40z50/actions/workflows/nostd.yml/badge.svg)](https://github.com/OpenDevicePartnership/bq40z50/actions/workflows/nostd.yml)
 [![check](https://github.com/OpenDevicePartnership/bq40z50/actions/workflows/check.yml/badge.svg)](https://github.com/OpenDevicePartnership/bq40z50/actions/workflows/check.yml)
+[![test](https://github.com/OpenDevicePartnership/bq40z50/actions/workflows/test.yml/badge.svg)](https://github.com/OpenDevicePartnership/bq40z50/actions/workflows/test.yml)
 [![Documentation](https://docs.rs/bq40z50-rx/badge.svg)](https://docs.rs/bq40z50-rx)
 [![Crates.io Version](https://img.shields.io/crates/v/bq40z50-rx)](https://crates.io/crates/bq40z50-rx)
 [![LICENSE](https://img.shields.io/badge/License-MIT-blue)](./LICENSE)
@@ -21,6 +22,16 @@ Please choose which revision you are using by enabling the appropriate feature.
 ## MSRV
 
 Currently, rust `1.85` and up is supported.
+
+## Testing
+
+The test workflow runs each chip revision with and without `embassy-timeout` and
+`pec-lookup-table`. To run tests locally, select a revision and any optional features:
+
+```sh
+cargo test --locked --features r1
+cargo test --locked --features r1,embassy-timeout,pec-lookup-table
+```
 
 ## License
 

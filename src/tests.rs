@@ -2,6 +2,7 @@ macro_rules! bq40z50_tests {
     ($revision:ident) => {
         #[cfg(test)]
         mod tests {
+            use device_driver::{AsyncBufferInterface, AsyncCommandInterface, AsyncRegisterInterface};
             use embedded_batteries_async::smart_battery::SmartBattery;
             use embedded_hal_mock::eh1::delay::{CheckedDelay, NoopDelay, Transaction as DelayTransaction};
             use embedded_hal_mock::eh1::i2c::{Mock, Transaction};
@@ -10,6 +11,24 @@ macro_rules! bq40z50_tests {
             use super::*;
             use crate::common::{CapacityModeState, Config};
             use crate::consts::{BQ_ADDR, DEFAULT_ERROR_BACKOFF_DELAY_MS};
+
+            fn write_transaction(data: &[u8], use_pec: bool) -> Transaction {
+                let mut frame = data.to_vec();
+                if use_pec {
+                    let preamble = [BQ_ADDR << 1];
+                    frame.push(smbus_pec::pec(&[preamble.as_slice(), data].concat()));
+                }
+                Transaction::write(BQ_ADDR, frame)
+            }
+
+            fn read_transaction(address: u8, data: &[u8], use_pec: bool) -> Transaction {
+                let mut frame = data.to_vec();
+                if use_pec {
+                    let preamble = [BQ_ADDR << 1, address, BQ_ADDR << 1 | 1];
+                    frame.push(smbus_pec::pec(&[preamble.as_slice(), data].concat()));
+                }
+                Transaction::write_read(BQ_ADDR, vec![address], frame)
+            }
 
             // Needed to compile in the pender symbol for embassy-time.
             // This is only enabled during tests and when actually using the driver,
@@ -177,6 +196,327 @@ macro_rules! bq40z50_tests {
             }
 
             #[tokio::test]
+            async fn test_buffer_write_lengths() {
+                for use_pec in [false, true] {
+                    for len in [0, 1, 3, 32, 33] {
+                        let data = vec![0xA5; len];
+                        let mut frame = vec![0x70];
+                        frame.extend_from_slice(&data);
+                        let expectations = [write_transaction(&frame, use_pec)];
+                        let mut interface = DeviceInterface::new_with_config(
+                            Mock::new(&expectations),
+                            CheckedDelay::new(&[]),
+                            Config {
+                                pec_write: use_pec,
+                                ..Default::default()
+                            },
+                        );
+
+                        assert_eq!(
+                            AsyncBufferInterface::write(&mut interface, 0x70, &data).await,
+                            Ok(len)
+                        );
+
+                        interface.i2c.done();
+                        interface.delay.done();
+                    }
+                }
+            }
+
+            #[tokio::test]
+            async fn test_register_transfer_lengths() {
+                for use_pec in [false, true] {
+                    for len in [0, 1, 31, 32] {
+                        let data = vec![0xA5; len];
+                        let mut frame = vec![0x17];
+                        frame.extend_from_slice(&data);
+                        let expectations = [
+                            write_transaction(&frame, use_pec),
+                            read_transaction(0x17, &data, use_pec),
+                        ];
+                        let mut interface = DeviceInterface::new_with_config(
+                            Mock::new(&expectations),
+                            CheckedDelay::new(&[]),
+                            Config {
+                                pec_read: use_pec,
+                                pec_write: use_pec,
+                                ..Default::default()
+                            },
+                        );
+                        let size_bits = u32::try_from(len * 8).unwrap();
+
+                        AsyncRegisterInterface::write_register(&mut interface, 0x17, size_bits, &data)
+                            .await
+                            .unwrap();
+                        let mut read = vec![0xCC; len];
+                        AsyncRegisterInterface::read_register(&mut interface, 0x17, size_bits, &mut read)
+                            .await
+                            .unwrap();
+                        assert_eq!(read, data);
+
+                        interface.i2c.done();
+                        interface.delay.done();
+                    }
+                }
+            }
+
+            #[tokio::test]
+            async fn test_command_read_maximum_length() {
+                for use_pec in [false, true] {
+                    let response = [vec![0x22, 0x70, 0x00], vec![0x5A; 32]].concat();
+                    let expectations = [
+                        write_transaction(&[0x44, 0x02, 0x70, 0x00], use_pec),
+                        read_transaction(0x44, &response, use_pec),
+                    ];
+                    let mut interface = DeviceInterface::new_with_config(
+                        Mock::new(&expectations),
+                        CheckedDelay::new(&[]),
+                        Config {
+                            pec_read: use_pec,
+                            ..Default::default()
+                        },
+                    );
+                    let mut data = [0xCC; 32];
+
+                    AsyncCommandInterface::dispatch_command(&mut interface, 0x447000, 0, &[], 256, &mut data)
+                        .await
+                        .unwrap();
+                    assert_eq!(data, [0x5A; 32]);
+
+                    interface.i2c.done();
+                    interface.delay.done();
+                }
+            }
+
+            #[tokio::test]
+            async fn test_oversized_trait_buffers() {
+                for use_pec in [false, true] {
+                    let mut interface = DeviceInterface::new_with_config(
+                        Mock::new(&[]),
+                        CheckedDelay::new(&[]),
+                        Config {
+                            pec_read: use_pec,
+                            pec_write: use_pec,
+                            ..Default::default()
+                        },
+                    );
+                    for len in [33, 64] {
+                        let data = vec![0xA5; len];
+                        let mut output = data.clone();
+                        let size_bits = u32::try_from(len * 8).unwrap();
+
+                        assert_eq!(
+                            AsyncRegisterInterface::write_register(&mut interface, 0x17, size_bits, &data).await,
+                            Err(BQ40Z50Error::DataTooLarge)
+                        );
+                        assert_eq!(
+                            AsyncRegisterInterface::read_register(&mut interface, 0x17, size_bits, &mut output).await,
+                            Err(BQ40Z50Error::DataTooLarge)
+                        );
+                        assert_eq!(
+                            AsyncCommandInterface::dispatch_command(
+                                &mut interface,
+                                0x447000,
+                                0,
+                                &[],
+                                size_bits,
+                                &mut output,
+                            )
+                            .await,
+                            Err(BQ40Z50Error::DataTooLarge)
+                        );
+                        assert_eq!(
+                            AsyncCommandInterface::dispatch_command(
+                                &mut interface,
+                                0x447000,
+                                size_bits,
+                                &data,
+                                0,
+                                &mut [],
+                            )
+                            .await,
+                            Err(BQ40Z50Error::DataTooLarge)
+                        );
+                        assert_eq!(output, data);
+                    }
+                    for len in [34, 64] {
+                        assert_eq!(
+                            AsyncBufferInterface::write(&mut interface, 0x70, &vec![0xA5; len]).await,
+                            Err(BQ40Z50Error::DataTooLarge)
+                        );
+                    }
+
+                    interface.i2c.done();
+                    interface.delay.done();
+                }
+            }
+
+            #[tokio::test]
+            async fn test_buffer_reads_keep_caller_length() {
+                for len in [0, 1, 33, 64] {
+                    let data = vec![0x5A; len];
+                    let expectations = [read_transaction(0x20, &data, false)];
+                    let mut interface = DeviceInterface::new_with_config(
+                        Mock::new(&expectations),
+                        CheckedDelay::new(&[]),
+                        Config {
+                            pec_read: true,
+                            ..Default::default()
+                        },
+                    );
+                    let mut read = vec![0xCC; len];
+
+                    assert_eq!(
+                        AsyncBufferInterface::read(&mut interface, 0x20, &mut read).await,
+                        Ok(len)
+                    );
+                    assert_eq!(read, data);
+
+                    interface.i2c.done();
+                    interface.delay.done();
+                }
+            }
+
+            #[tokio::test]
+            async fn test_mfg_info_read_lengths() {
+                let data = [vec![32], vec![0x5A; 32]].concat();
+                for use_pec in [false, true] {
+                    for len in [0, 1, 32, 33] {
+                        let response = if use_pec { &data[..] } else { &data[..len] };
+                        let expectations = [read_transaction(0x70, response, use_pec)];
+                        let mut bq = Bq40z50::new_with_config(
+                            Mock::new(&expectations),
+                            CheckedDelay::new(&[]),
+                            Config {
+                                pec_read: use_pec,
+                                ..Default::default()
+                            },
+                        );
+                        let mut read = vec![0xCC; len];
+
+                        bq.read_mfg_info(&mut read).await.unwrap();
+                        assert_eq!(read, data[..len]);
+
+                        bq.device.interface.i2c.done();
+                        bq.device.interface.delay.done();
+                    }
+                }
+            }
+
+            #[tokio::test]
+            async fn test_calibration_stop_aliases() {
+                for use_pec in [false, true] {
+                    let stop = write_transaction(&[0x44, 0x02, 0x80, 0xF0], use_pec);
+                    let expectations = [stop.clone(), stop.clone(), stop];
+                    let mut bq = Bq40z50::new_with_config(
+                        Mock::new(&expectations),
+                        CheckedDelay::new(&[]),
+                        Config {
+                            pec_write: use_pec,
+                            ..Default::default()
+                        },
+                    );
+
+                    bq.device
+                        .mac_exit_calibration_output_mode()
+                        .dispatch_async()
+                        .await
+                        .unwrap();
+                    bq.device
+                        .mac_stop_output_ccadc_cal()
+                        .dispatch_async()
+                        .await
+                        .unwrap();
+                    bq.device
+                        .mac_stop_output_shorted_ccadc_cal()
+                        .dispatch_async()
+                        .await
+                        .unwrap();
+
+                    bq.device.interface.i2c.done();
+                    bq.device.interface.delay.done();
+                }
+            }
+
+            #[tokio::test]
+            async fn test_calibration_enable_commands() {
+                for use_pec in [false, true] {
+                    let normal = [vec![0x1A, 0x81, 0xF0], vec![0x5A; 24]].concat();
+                    let shorted = [vec![0x1A, 0x82, 0xF0], vec![0xA5; 24]].concat();
+                    let expectations = [
+                        write_transaction(&[0x44, 0x02, 0x81, 0xF0], use_pec),
+                        read_transaction(0x44, &normal, use_pec),
+                        write_transaction(&[0x44, 0x02, 0x82, 0xF0], use_pec),
+                        read_transaction(0x44, &shorted, use_pec),
+                    ];
+                    let mut bq = Bq40z50::new_with_config(
+                        Mock::new(&expectations),
+                        CheckedDelay::new(&[]),
+                        Config {
+                            pec_read: use_pec,
+                            pec_write: use_pec,
+                            ..Default::default()
+                        },
+                    );
+
+                    let normal: [u8; 24] = bq
+                        .device
+                        .mac_output_ccadc_cal()
+                        .dispatch_async()
+                        .await
+                        .unwrap()
+                        .into();
+                    let shorted: [u8; 24] = bq
+                        .device
+                        .mac_output_shorted_ccadc_cal()
+                        .dispatch_async()
+                        .await
+                        .unwrap()
+                        .into();
+                    assert_eq!(normal, [0x5A; 24]);
+                    assert_eq!(shorted, [0xA5; 24]);
+
+                    bq.device.interface.i2c.done();
+                    bq.device.interface.delay.done();
+                }
+            }
+
+            #[tokio::test]
+            async fn test_dataflash_partial_write_stops_after_failed_chunk() {
+                for use_pec in [false, true] {
+                    let first = [vec![0x44, 0x22, 0x00, 0x40], vec![0x11; 32]].concat();
+                    let second = [vec![0x44, 0x22, 0x20, 0x40], vec![0x22; 32]].concat();
+                    let error =
+                        embedded_hal::i2c::ErrorKind::NoAcknowledge(embedded_hal::i2c::NoAcknowledgeSource::Address);
+                    let failed_write = write_transaction(&second, use_pec).with_error(error);
+                    let expectations = [
+                        write_transaction(&first, use_pec),
+                        failed_write.clone(),
+                        failed_write,
+                    ];
+                    let delays = [DelayTransaction::delay_ms(DEFAULT_ERROR_BACKOFF_DELAY_MS)];
+                    let mut bq = Bq40z50::new_with_config(
+                        Mock::new(&expectations),
+                        CheckedDelay::new(&delays),
+                        Config {
+                            max_bus_retries: 1,
+                            pec_write: use_pec,
+                            ..Default::default()
+                        },
+                    );
+                    let data = [[0x11; 32], [0x22; 32], [0x33; 32]].concat();
+
+                    assert_eq!(
+                        bq.write_dataflash(0x4000, &data).await,
+                        Err(BQ40Z50Error::I2c(error))
+                    );
+
+                    bq.device.interface.i2c.done();
+                    bq.device.interface.delay.done();
+                }
+            }
+
+            #[tokio::test]
             async fn write_unseal_keys() {
                 let expectations = vec![
                     Transaction::write(
@@ -223,6 +563,10 @@ macro_rules! bq40z50_tests {
                 };
 
                 assert_eq!(status.error_code(), ErrorCode::Ok);
+                assert!(status.fully_discharged());
+                assert!(status.fully_charged());
+                assert!(status.over_temp_alarm());
+                assert!(!status.discharging());
 
                 bq.device.interface.i2c.done();
             }
@@ -253,6 +597,10 @@ macro_rules! bq40z50_tests {
                 };
 
                 assert_eq!(status.error_code(), ErrorCode::Ok);
+                assert!(status.fully_discharged());
+                assert!(status.fully_charged());
+                assert!(status.over_temp_alarm());
+                assert!(!status.discharging());
 
                 bq.device.interface.i2c.done();
             }
@@ -277,6 +625,7 @@ macro_rules! bq40z50_tests {
                 let status = bq.battery_status().await.unwrap();
 
                 assert_eq!(status.error_code(), ErrorCode::Ok);
+                assert!(status.discharging());
                 bq.device.interface.i2c.done();
                 bq.device.interface.delay.done();
             }
@@ -477,6 +826,13 @@ macro_rules! bq40z50_tests {
 
                 let mut buf = [0u8; 32];
                 bq.read_mfg_info_c(&mut buf).await.unwrap();
+                assert_eq!(
+                    buf,
+                    [
+                        0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                        0xE0, 0x2E, 0x18, 0x2E, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x44, 0x32,
+                    ]
+                );
 
                 bq.device.interface.i2c.done();
             }
@@ -509,6 +865,13 @@ macro_rules! bq40z50_tests {
 
                 let mut buf = [0u8; 32];
                 bq.read_mfg_info_c(&mut buf).await.unwrap();
+                assert_eq!(
+                    buf,
+                    [
+                        0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31,
+                        0xE0, 0x2E, 0x18, 0x2E, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x44, 0x32,
+                    ]
+                );
 
                 bq.device.interface.i2c.done();
             }
@@ -535,38 +898,10 @@ macro_rules! bq40z50_tests {
                         ],
                     ),
                     // Write 3, 128 bytes (4 block writes)
-                    Transaction::write(
-                        BQ_ADDR,
-                        vec![
-                            0x44, 34, 0x00, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E,
-                            0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
-                            0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                        ],
-                    ),
-                    Transaction::write(
-                        BQ_ADDR,
-                        vec![
-                            0x44, 34, 0x20, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E,
-                            0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
-                            0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                        ],
-                    ),
-                    Transaction::write(
-                        BQ_ADDR,
-                        vec![
-                            0x44, 34, 0x40, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E,
-                            0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
-                            0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                        ],
-                    ),
-                    Transaction::write(
-                        BQ_ADDR,
-                        vec![
-                            0x44, 34, 0x60, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E,
-                            0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
-                            0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                        ],
-                    ),
+                    Transaction::write(BQ_ADDR, [vec![0x44, 34, 0x00, 0x40], vec![0x11; 32]].concat()),
+                    Transaction::write(BQ_ADDR, [vec![0x44, 34, 0x20, 0x40], vec![0x22; 32]].concat()),
+                    Transaction::write(BQ_ADDR, [vec![0x44, 34, 0x40, 0x40], vec![0x33; 32]].concat()),
+                    Transaction::write(BQ_ADDR, [vec![0x44, 34, 0x60, 0x40], vec![0x44; 32]].concat()),
                     // Read 1, 4 bytes (1 block read)
                     Transaction::write(BQ_ADDR, vec![0x44, 0x02, 0x00, 0x40]),
                     Transaction::write_read(
@@ -598,38 +933,22 @@ macro_rules! bq40z50_tests {
                     Transaction::write_read(
                         BQ_ADDR,
                         vec![0x44],
-                        vec![
-                            0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00,
-                            0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                            0x38, 0x31, 0xE0, 0x2E, 0x18,
-                        ],
+                        [vec![0x22, 0x00, 0x40], vec![0x11; 32]].concat(),
                     ),
                     Transaction::write_read(
                         BQ_ADDR,
                         vec![0x44],
-                        vec![
-                            0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00,
-                            0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                            0x38, 0x31, 0xE0, 0x2E, 0x18,
-                        ],
+                        [vec![0x22, 0x20, 0x40], vec![0x22; 32]].concat(),
                     ),
                     Transaction::write_read(
                         BQ_ADDR,
                         vec![0x44],
-                        vec![
-                            0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00,
-                            0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                            0x38, 0x31, 0xE0, 0x2E, 0x18,
-                        ],
+                        [vec![0x22, 0x40, 0x40], vec![0x33; 32]].concat(),
                     ),
                     Transaction::write_read(
                         BQ_ADDR,
                         vec![0x44],
-                        vec![
-                            0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00,
-                            0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                            0x38, 0x31, 0xE0, 0x2E, 0x18,
-                        ],
+                        [vec![0x22, 0x60, 0x40], vec![0x44; 32]].concat(),
                     ),
                 ];
                 let i2c = Mock::new(&expectations);
@@ -648,16 +967,7 @@ macro_rules! bq40z50_tests {
                 bq.write_dataflash(0x4000, &write).await.unwrap();
 
                 // Write 3
-                let write = [
-                    0x03u8, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                ];
+                let write = [[0x11; 32], [0x22; 32], [0x33; 32], [0x44; 32]].concat();
                 bq.write_dataflash(0x4000, &write).await.unwrap();
 
                 // Read 1
@@ -680,19 +990,8 @@ macro_rules! bq40z50_tests {
                 let mut read = [0u8; 128];
                 bq.read_dataflash(0x4000, &mut read).await.unwrap();
 
-                assert_eq!(
-                    read,
-                    [
-                        0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                        0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18,
-                        0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                        0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18,
-                        0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                        0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18,
-                        0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                        0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18
-                    ]
-                );
+                let expected = [[0x11; 32], [0x22; 32], [0x33; 32], [0x44; 32]].concat();
+                assert_eq!(read.as_slice(), expected.as_slice());
 
                 bq.device.interface.i2c.done();
             }
@@ -724,35 +1023,19 @@ macro_rules! bq40z50_tests {
                     // Write 3, 128 bytes (4 block writes)
                     Transaction::write(
                         BQ_ADDR,
-                        vec![
-                            0x44, 34, 0x00, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E,
-                            0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
-                            0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0xA2, // PEC
-                        ],
+                        [vec![0x44, 34, 0x00, 0x40], vec![0x11; 32], vec![0x66]].concat(),
                     ),
                     Transaction::write(
                         BQ_ADDR,
-                        vec![
-                            0x44, 34, 0x20, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E,
-                            0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
-                            0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x14, // PEC
-                        ],
+                        [vec![0x44, 34, 0x20, 0x40], vec![0x22; 32], vec![0x86]].concat(),
                     ),
                     Transaction::write(
                         BQ_ADDR,
-                        vec![
-                            0x44, 34, 0x40, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E,
-                            0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
-                            0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0xC9, // PEC
-                        ],
+                        [vec![0x44, 34, 0x40, 0x40], vec![0x33; 32], vec![0x94]].concat(),
                     ),
                     Transaction::write(
                         BQ_ADDR,
-                        vec![
-                            0x44, 34, 0x60, 0x40, 0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E,
-                            0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18,
-                            0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x7F, // PEC
-                        ],
+                        [vec![0x44, 34, 0x60, 0x40], vec![0x44; 32], vec![0x41]].concat(),
                     ),
                     // PEC reads will always read in 32 byte data chunks.
                     // Read 1, 4 bytes (1 block read)
@@ -791,38 +1074,22 @@ macro_rules! bq40z50_tests {
                     Transaction::write_read(
                         BQ_ADDR,
                         vec![0x44],
-                        vec![
-                            0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00,
-                            0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                            0x38, 0x31, 0xE0, 0x2E, 0x18, 0x22, // PEC
-                        ],
+                        [vec![0x22, 0x00, 0x40], vec![0x11; 32], vec![0x28]].concat(),
                     ),
                     Transaction::write_read(
                         BQ_ADDR,
                         vec![0x44],
-                        vec![
-                            0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00,
-                            0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                            0x38, 0x31, 0xE0, 0x2E, 0x18, 0x22, // PEC
-                        ],
+                        [vec![0x22, 0x20, 0x40], vec![0x22; 32], vec![0xC8]].concat(),
                     ),
                     Transaction::write_read(
                         BQ_ADDR,
                         vec![0x44],
-                        vec![
-                            0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00,
-                            0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                            0x38, 0x31, 0xE0, 0x2E, 0x18, 0x22, // PEC
-                        ],
+                        [vec![0x22, 0x40, 0x40], vec![0x33; 32], vec![0xDA]].concat(),
                     ),
                     Transaction::write_read(
                         BQ_ADDR,
                         vec![0x44],
-                        vec![
-                            0x22, 0x00, 0x40, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00,
-                            0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                            0x38, 0x31, 0xE0, 0x2E, 0x18, 0x22, // PEC
-                        ],
+                        [vec![0x22, 0x60, 0x40], vec![0x44; 32], vec![0x0F]].concat(),
                     ),
                 ];
                 let i2c = Mock::new(&expectations);
@@ -849,16 +1116,7 @@ macro_rules! bq40z50_tests {
                 bq.write_dataflash(0x4000, &write).await.unwrap();
 
                 // Write 3
-                let write = [
-                    0x03u8, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                    0x03, 0x56, 0x01, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E,
-                    0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0,
-                ];
+                let write = [[0x11; 32], [0x22; 32], [0x33; 32], [0x44; 32]].concat();
                 bq.write_dataflash(0x4000, &write).await.unwrap();
 
                 // Read 1
@@ -881,19 +1139,8 @@ macro_rules! bq40z50_tests {
                 let mut read = [0u8; 128];
                 bq.read_dataflash(0x4000, &mut read).await.unwrap();
 
-                assert_eq!(
-                    read,
-                    [
-                        0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                        0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18,
-                        0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                        0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18,
-                        0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                        0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18,
-                        0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E,
-                        0x38, 0x31, 0xE0, 0x2E, 0x18, 0x2E, 0x00, 0x18, 0x2E, 0xE0, 0x2E, 0x38, 0x31, 0xE0, 0x2E, 0x18
-                    ]
-                );
+                let expected = [[0x11; 32], [0x22; 32], [0x33; 32], [0x44; 32]].concat();
+                assert_eq!(read.as_slice(), expected.as_slice());
 
                 bq.device.interface.i2c.done();
             }

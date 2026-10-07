@@ -849,8 +849,9 @@ impl<I> Device<I> {
         let address = self.base_address + 4489456;
         ::device_driver::CommandOperation::<'_, I, u32, (), ()>::new(self.interface(), address as u32)
     }
+    /// Alias for MAC_EXIT_CALIBRATION_OUTPUT_MODE (0xF080).
     pub fn mac_stop_output_ccadc_cal(&mut self) -> ::device_driver::CommandOperation<'_, I, u32, (), ()> {
-        let address = self.base_address + 4489712;
+        let address = self.base_address + 4489456;
         ::device_driver::CommandOperation::<'_, I, u32, (), ()>::new(self.interface(), address as u32)
     }
     pub fn mac_output_ccadc_cal(
@@ -862,8 +863,9 @@ impl<I> Device<I> {
             address as u32,
         )
     }
+    /// Alias for MAC_EXIT_CALIBRATION_OUTPUT_MODE (0xF080).
     pub fn mac_stop_output_shorted_ccadc_cal(&mut self) -> ::device_driver::CommandOperation<'_, I, u32, (), ()> {
-        let address = self.base_address + 4489968;
+        let address = self.base_address + 4489456;
         ::device_driver::CommandOperation::<'_, I, u32, (), ()>::new(self.interface(), address as u32)
     }
     pub fn mac_output_shorted_ccadc_cal(

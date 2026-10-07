@@ -1924,16 +1924,17 @@ MAC_ROM_MODE:
 MAC_EXIT_CALIBRATION_OUTPUT_MODE:
   type: command
   address: 0x4480F0
+  allow_address_overlap: true # Preserve the two public stop-command aliases.
 
 MAC_STOP_OUTPUT_CCADC_CAL:
   type: command
-  address: 0x4481F0
+  description: Alias for MAC_EXIT_CALIBRATION_OUTPUT_MODE (0xF080).
+  address: 0x4480F0
   allow_address_overlap: true
 
 MAC_OUTPUT_CCADC_CAL:
   type: command
   address: 0x4481F0
-  allow_address_overlap: true
   size_bits_out: 192
   fields_out:
     REFRESH_CTR:
@@ -1991,13 +1992,13 @@ MAC_OUTPUT_CCADC_CAL:
 
 MAC_STOP_OUTPUT_SHORTED_CCADC_CAL:
   type: command
-  address: 0x4482F0
+  description: Alias for MAC_EXIT_CALIBRATION_OUTPUT_MODE (0xF080).
+  address: 0x4480F0
   allow_address_overlap: true
 
 MAC_OUTPUT_SHORTED_CCADC_CAL:
   type: command
   address: 0x4482F0
-  allow_address_overlap: true
   size_bits_out: 192
   fields_out:
     REFRESH_CTR:

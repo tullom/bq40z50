@@ -496,6 +496,13 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> Bq40z50R5<I2C, DELAY> {
     /// The data flash supports writing up to 32 bytes of data per write transaction, however this method can
     /// handle writes of larger than 32 bytes. On the physical bus, the writes will be chunked into 32 byte blocks.
     /// Thus, the input argument `write` slice length can be larger than 32 bytes.
+    ///
+    /// # Partial writes
+    ///
+    /// Writes are not atomic: each chunk is committed independently. On error, earlier chunks are not rolled back,
+    /// and the failing chunk may also have been accepted by the gauge. The error does not report write progress.
+    /// Retrying the whole operation rewrites earlier chunks. Callers must verify the affected data and handle recovery.
+    ///
     /// # Errors
     ///
     /// Will return `Err` if an I2C bus error occurs.

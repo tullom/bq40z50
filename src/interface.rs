@@ -888,7 +888,9 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> device_driver::AsyncRegisterInterface for
         _size_bits: u32,
         data: &[u8],
     ) -> Result<(), Self::Error> {
-        debug_assert!((data.len() <= LARGEST_REG_SIZE_BYTES), "Register size too big");
+        if data.len() > LARGEST_REG_SIZE_BYTES {
+            return Err(BQ40Z50Error::DataTooLarge);
+        }
 
         // Add one byte for register address
         let mut buf = [0u8; 1 + LARGEST_REG_SIZE_BYTES];
@@ -908,6 +910,9 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> device_driver::AsyncRegisterInterface for
         _size_bits: u32,
         data: &mut [u8],
     ) -> Result<(), Self::Error> {
+        if data.len() > LARGEST_REG_SIZE_BYTES {
+            return Err(BQ40Z50Error::DataTooLarge);
+        }
         self.read_with_retries(&[address], data, self.config.pec_read).await
     }
 }
@@ -920,10 +925,14 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> device_driver::AsyncCommandInterface for 
         &mut self,
         address: Self::AddressType,
         size_bits_in: u32,
-        _input: &[u8],
+        input: &[u8],
         size_bits_out: u32,
         output: &mut [u8],
     ) -> Result<(), Self::Error> {
+        if input.len() > LARGEST_CMD_SIZE_BYTES || output.len() > LARGEST_CMD_SIZE_BYTES {
+            return Err(BQ40Z50Error::DataTooLarge);
+        }
+
         // For this driver, dispatch_command() is used for interfacing with MAC registers.
         // There are 3 possible scenarios, read only, write only, or read/write registers.
         // Read commands have an output size but no input size.
@@ -966,14 +975,16 @@ impl<I2C: I2cTrait, DELAY: DelayTrait> device_driver::AsyncBufferInterface for D
     }
 
     async fn write(&mut self, address: Self::AddressType, buf: &[u8]) -> Result<usize, Self::Error> {
-        debug_assert!((buf.len() <= LARGEST_BUF_SIZE_BYTES), "Buffer size too big");
+        if buf.len() > LARGEST_BUF_SIZE_BYTES {
+            return Err(BQ40Z50Error::DataTooLarge);
+        }
 
         // Add one byte for register address
         let mut data = [0u8; 1 + LARGEST_BUF_SIZE_BYTES];
         data[0] = address;
         data[1..=buf.len()].copy_from_slice(buf);
 
-        self.write_with_retries(&data, self.config.pec_write)
+        self.write_with_retries(&data[..=buf.len()], self.config.pec_write)
             .await
             .map(|()| buf.len())
     }
